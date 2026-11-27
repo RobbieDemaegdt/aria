@@ -54,6 +54,7 @@ import type {
   RuleCheck,
   RuleOffer,
   RuleScope,
+  SandboxPermission,
   SaveMcpServerInput,
   SearchResults,
   SearchScope,
@@ -703,6 +704,7 @@ export class AriaEngine {
       policyRules: () => this.policyStore.rules(),
       sandboxFor: (task) => this.sandboxFor(task),
       allowedSandboxPaths: () => this.policyStore.sandbox().allowedPaths,
+      persistSandboxException: (exception) => this.persistSandboxException(exception),
       briefTemplate: () => this.prompts.active("brief"),
       memoryFor: (repoId) => memoryBlock(briefNotes(this.db.listMemories(), repoId).shown),
       digest: (line) => this.digest.add(line),
@@ -3148,7 +3150,7 @@ export class AriaEngine {
     const pending = task?.permissions?.find((p) => p.id === permissionId);
     this.tasks.decidePermission(taskId, permissionId, decision, note);
     if (task && pending) {
-      const verb = decision === "reject" ? "rejected" : decision === "task" ? "approved for the rest of the task" : "approved";
+      const verb = decision === "reject" ? "rejected" : decision === "task" ? "approved for the rest of the task" : decision === "always" ? "saved as an exact sandbox exception" : "approved";
       this.digest.add(`You ${verb} ${pending.shortId} from "${task.title}" (${quote(pending.what)})${note?.trim() ? `, saying ${quote(note)}` : ""}.`);
     }
   }
@@ -3323,6 +3325,25 @@ export class AriaEngine {
       ...(task.nonGit ? { nonGit: true } : {}),
       extraReadonly: this.extensionReadableRoots(),
     });
+  }
+
+  private persistSandboxException(exception: SandboxPermission): void {
+    if (!exception.persistent) throw new Error("That sandbox block cannot be saved safely.");
+    const settings = this.policyStore.sandbox();
+    if (exception.persistent === "path") {
+      if (exception.access !== "read") throw new Error("Only read-only sandbox paths can be saved.");
+      const safe = grantablePaths([exception.target], [this.options.dataDir]);
+      if (safe.length !== 1) throw new Error("That path is too broad or reaches protected data, so it cannot be saved.");
+      this.policyStore.setSandbox({ allowedPaths: [...settings.allowedPaths, safe[0]!] });
+    } else {
+      if (exception.access !== "network") throw new Error("Only exact sandbox hosts can be saved.");
+      const host = exception.target.trim().toLowerCase();
+      if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(host) || host.includes("..") || host === "localhost" || host === "127.0.0.1") {
+        throw new Error("That host cannot be saved as an exact sandbox exception.");
+      }
+      this.policyStore.setSandbox({ allowedHosts: [...settings.allowedHosts, host] });
+    }
+    this.emitPolicy();
   }
 
   policySettings(): PolicySettings {

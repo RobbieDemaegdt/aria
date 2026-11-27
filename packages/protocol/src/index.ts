@@ -775,6 +775,8 @@ export interface PermissionCardPayload {
   /** What "Approve for this task" would cover (D21). */
   scope: string;
   sandboxed: boolean;
+  /** A sandbox boundary crossed after the ordinary policy checks. */
+  sandbox?: SandboxPermission;
   /** A destructive command (D28, D29): Approve once or Reject only, every time; no "Approve for this task". */
   everyTime?: boolean;
   /** "Always allow this" (§5.3): the rules ARIA worked out for it when it was decided (`ruleOffers`). */
@@ -1186,8 +1188,18 @@ export interface PendingQuestion {
 }
 
 export type PermissionKind = "shell" | "write" | "read" | "url" | "mcp" | "other";
+
+/** A narrow resource the runtime sandbox blocked and ARIA can safely identify. */
+export interface SandboxPermission {
+  access: "read" | "write" | "execute" | "network";
+  target: string;
+  label: string;
+  /** Safe target class that may be saved globally as an exact exception. */
+  persistent?: "path" | "host";
+}
+
 /** once: this request only; task: the same operation on the same target for the rest of the task (D21). */
-export type PermissionDecision = "once" | "task" | "reject";
+export type PermissionDecision = "once" | "task" | "always" | "reject";
 export type PlanDecision = "autopilot" | "interactive" | "revise" | "cancel";
 
 /** Something a worker wants to do that needs your approval (PLAN.md §4.8). */
@@ -1202,6 +1214,8 @@ export interface PendingPermission {
   reason: string;
   /** What "Approve for this task" would cover. */
   scope: string;
+  /** A sandbox boundary crossed after the ordinary policy checks. */
+  sandbox?: SandboxPermission;
   /** A destructive command: it asks every time, so "Approve for this task" isn't offered (D29). */
   everyTime?: boolean;
   askedAt: number;
@@ -2275,7 +2289,7 @@ export const SetProfilePolicyInput = z.object({ policy: z.enum(["me", "aria", "a
 export const DecidePermissionInput = z.object({
   taskId,
   permissionId: itemId,
-  decision: z.enum(["once", "task", "reject"]),
+  decision: z.enum(["once", "task", "always", "reject"]),
   note: z.string().trim().max(2_000).optional(),
 });
 export const ReviewPlanInput = z.object({

@@ -126,14 +126,15 @@ async function boundedWait(ms: number, work: () => Promise<unknown>): Promise<vo
 const CONDUCTOR_MAPPER = { maxMessageText: Number.POSITIVE_INFINITY, maxToolText: 20_000 } as const;
 
 function toAsk(request: PermissionRequest): PermissionAsk {
-  // A request to run outside the runtime's sandbox is never approved by a rule (Phase 0 policy; ARIA sets no bypass).
-  if ("requestSandboxBypass" in request && request.requestSandboxBypass) return { kind: "other", detail: `${request.kind} outside the sandbox` };
+  // Keep the original operation and target when the runtime asks to cross its sandbox boundary. The worker policy
+  // decides the operation first; the manager can then offer one-time, task and (where safe) persistent access.
+  const sandboxBlock = "requestSandboxBypass" in request && request.requestSandboxBypass ? { sandboxBlock: true as const } : {};
   const intention = "intention" in request && typeof request.intention === "string" && request.intention.trim() ? { intention: request.intention.trim() } : {};
   switch (request.kind) {
     case "read":
-      return { kind: "read", path: request.resolvedPath ?? request.path, ...intention };
+      return { kind: "read", path: request.resolvedPath ?? request.path, ...intention, ...sandboxBlock };
     case "write":
-      return { kind: "write", path: request.resolvedPath ?? request.fileName, ...intention };
+      return { kind: "write", path: request.resolvedPath ?? request.fileName, ...intention, ...sandboxBlock };
     case "shell":
       // Phase 0: for PowerShell, commands[] holds the whole line unparsed; commandSegments[] is the parsed view.
       return {
@@ -146,16 +147,17 @@ function toAsk(request: PermissionRequest): PermissionAsk {
         ...intention,
         // Always there on the real runtime, and equal to the transcript's tool id (spike 15).
         ...("toolCallId" in request && typeof request.toolCallId === "string" ? { toolCallId: request.toolCallId } : {}),
+        ...sandboxBlock,
       };
     case "mcp":
       // toolName is the runtime wire name `<server>-<tool>` (Phase 0).
-      return { kind: "mcp", server: request.serverName, tool: request.toolName, args: request.args };
+      return { kind: "mcp", server: request.serverName, tool: request.toolName, args: request.args, ...sandboxBlock };
     case "custom-tool":
-      return { kind: "custom-tool", tool: request.toolName };
+      return { kind: "custom-tool", tool: request.toolName, ...sandboxBlock };
     case "url":
-      return { kind: "url", url: request.url, ...intention };
+      return { kind: "url", url: request.url, ...intention, ...sandboxBlock };
     default:
-      return { kind: "other", detail: request.kind };
+      return { kind: "other", detail: request.kind, ...sandboxBlock };
   }
 }
 
@@ -1994,8 +1996,8 @@ async function readSessionPlan(session: CopilotSession | undefined, fallbackSess
 }
 
 /**
- * Turns the runtime's sandbox on for a worker's session with its grants (D20, spike 10), or explicitly off. No bypass:
- * a command the sandbox blocks fails, and the worker is told to ask. MCP servers aren't confined: a worker's MCP tools
+ * Turns the runtime's sandbox on for a worker's session with its grants (D20, spike 10), or explicitly off. Boundary
+ * bypass requests route through ARIA's permission handler and never approve implicitly. MCP servers aren't confined: a worker's MCP tools
  * are GitHub read tools, already limited by ARIA's policy, and confining them would cut their remote traffic.
  */
 async function applySandbox(session: CopilotSession, sandbox: WorkerConfig["sandbox"]): Promise<void> {
@@ -2032,7 +2034,9 @@ async function applySandbox(session: CopilotSession, sandbox: WorkerConfig["sand
     sandboxConfig: {
       enabled: true,
       addCurrentWorkingDirectory: true,
-      allowBypass: false,
+      // Bypass requests are still confined by ARIA's policy handler and return approve-once for only the pending,
+      // exact request. Task and persistent scopes are ARIA-owned grants, never runtime-wide bypasses.
+      allowBypass: true,
       // Its automatic grants include writable user caches (Cargo's, scratch caches); the toolchains are granted
       // read-only in the spec instead (sandbox.ts).
       allowDevToolAccess: false,

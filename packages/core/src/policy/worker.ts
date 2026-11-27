@@ -16,7 +16,7 @@
  *   a folder for files); the same ones later run without asking.
  */
 import path from "node:path";
-import type { PermissionKind, PolicyRule, RuleEffect, TaskGrant } from "@aria/protocol";
+import type { PermissionKind, PolicyRule, RuleEffect, SandboxPermission, TaskGrant } from "@aria/protocol";
 import { insideDir } from "../conductor/policy.ts";
 import { githubFixed, isGithubName, type McpRule } from "../integrations/rules.ts";
 import { classifyTool, serverWirePrefix } from "../integrations/scope.ts";
@@ -38,6 +38,7 @@ import {
   type RuleShape,
 } from "./command.ts";
 import { destructive, destructiveTogether } from "./destructive.ts";
+import { grantablePaths } from "./sandbox.ts";
 
 export interface WorkerPolicyContext {
   worktree: string;
@@ -73,6 +74,8 @@ export interface WorkerPolicyContext {
 export interface PermissionRequestDetails {
   kind: PermissionKind;
   what: string;
+  /** The runtime sandbox boundary this request crossed, after the ordinary policy allowed/asked for it. */
+  sandbox?: SandboxPermission;
   /** Where it acts, when that isn't simply the task's worktree. */
   where?: string;
   why?: string;
@@ -683,7 +686,77 @@ function pushRule(parsed: ParsedCommand, ctx: RuleContext): string | undefined {
   return undefined;
 }
 
+function sandboxDecision(ask: PermissionAsk, ctx: WorkerPolicyContext): PolicyDecision {
+  const plain = { ...ask, sandboxBlock: undefined } as PermissionAsk;
+  // Files and URLs outside the worktree are normally refused because the sandbox would stop them. For a sandbox
+  // bypass request, evaluate the ordinary access policy as an unsandboxed task, then add the separate boundary grant.
+  const ordinary = decideWorker(plain, ask.kind === "read" || ask.kind === "write" || ask.kind === "url" ? { ...ctx, sandboxed: false } : ctx);
+  if (ordinary.effect === "never") return ordinary;
+
+  let sandbox: SandboxPermission;
+  let identity: Identity & { label: string };
+  switch (ask.kind) {
+    case "read":
+    case "write": {
+      const target = canonicalPath(path.resolve(ctx.worktree, ask.path), ctx.worktree);
+      sandbox = {
+        access: ask.kind,
+        target,
+        label: `allow this task to ${ask.kind} ${target}`,
+        ...(ask.kind === "read" && grantablePaths([target]).length === 1 ? { persistent: "path" as const } : {}),
+      };
+      identity = { key: `sandbox-${ask.kind}`, target, label: sandbox.label };
+      break;
+    }
+    case "url": {
+      const target = hostOf(ask.url);
+      const safeHost = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(target) && !target.includes("..") && target !== "localhost" && target !== "127.0.0.1";
+      sandbox = { access: "network", target, label: `allow this task to open ${target}`, ...(safeHost ? { persistent: "host" as const } : {}) };
+      identity = { key: "sandbox-url", target, label: sandbox.label };
+      break;
+    }
+    case "shell": {
+      const cwd = canonicalPath(ask.cwd ?? ctx.worktree, ctx.worktree);
+      const target = `${cwd}\n${ask.command.trim()}`;
+      sandbox = { access: "execute", target, label: `allow ${ask.command.trim()} through the sandbox in ${cwd}` };
+      identity = { key: "sandbox-shell", target, label: sandbox.label };
+      break;
+    }
+    default:
+      return never(`ARIA can't safely grant this ${ask.kind} sandbox request`);
+  }
+
+  const identities = ordinary.effect === "ask" && ordinary.request.everyTime
+    ? []
+    : ordinary.effect === "ask" ? [...ordinary.request.grants, identity] : [identity];
+  if (identities.length > 0 && identities.every((item) => granted(ctx.grants, item))) return AUTO;
+  if (ordinary.effect === "ask") {
+    return {
+      effect: "ask",
+      request: {
+        ...ordinary.request,
+        sandbox,
+        reason: `${ordinary.request.reason}; the sandbox also blocks it`,
+        scope: `${ordinary.request.scope}, through the sandbox`,
+        grants: identities,
+        ...(ordinary.request.everyTime ? { everyTime: true } : {}),
+      },
+    };
+  }
+  return askFor(ctx, {
+    kind: ask.kind as PermissionKind,
+    what: ask.kind === "shell" ? ask.command.trim() : ask.kind === "read" || ask.kind === "write" ? ask.path : ask.url,
+    ...(ask.kind === "shell" && ask.cwd ? { where: ask.cwd } : {}),
+    ...(ask.kind === "shell" || ask.kind === "read" || ask.kind === "write" || ask.kind === "url" ? (ask.intention ? { why: ask.intention } : {}) : {}),
+    reason: "the runtime sandbox blocks this otherwise-allowed access",
+    scope: sandbox.label,
+    sandbox,
+    identities: [identity],
+  });
+}
+
 export function decideWorker(ask: PermissionAsk, ctx: WorkerPolicyContext): PolicyDecision {
+  if (ask.sandboxBlock) return sandboxDecision(ask, ctx);
   switch (ask.kind) {
     case "custom-tool":
       return AUTO;

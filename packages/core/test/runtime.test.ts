@@ -227,7 +227,7 @@ describe("CopilotRuntime workers (Phase 3)", () => {
       sandboxConfig: {
         enabled: true,
         addCurrentWorkingDirectory: true,
-        allowBypass: false,
+        allowBypass: true,
         allowDevToolAccess: false,
         sandboxMcpServers: false,
         userPolicy: {
@@ -328,6 +328,9 @@ describe("CopilotRuntime workers (Phase 3)", () => {
     verdict = { approve: false, reason: "No." };
     expect(await config().onPermissionRequest(shell)).toEqual({ kind: "reject", feedback: "No." });
     expect(asks[0]).toMatchObject({ kind: "shell", command: "npm install x", intention: "Add x" });
+    verdict = { approve: true };
+    await config().onPermissionRequest({ kind: "read", path: "C:\\Work\\notes.txt", resolvedPath: "C:\\Work\\notes.txt", requestSandboxBypass: true });
+    expect(asks[1]).toMatchObject({ kind: "read", path: "C:\\Work\\notes.txt", sandboxBlock: true });
   });
 
   it("sanitizes session name so it does not contain double quotes or control characters", async () => {

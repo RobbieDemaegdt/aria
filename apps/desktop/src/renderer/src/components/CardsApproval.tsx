@@ -10,14 +10,16 @@ import { Button, oneLine, Receipt, Shell, ShortId, useTask } from "./CardParts";
 const PERMISSION_DECIDED: Record<PermissionDecision | "expired", string> = {
   once: "Approved once",
   task: "Approved for the rest of the task",
+  always: "Saved as an exact sandbox exception",
   reject: "Rejected",
   expired: "No longer waiting",
 };
 
-/** Approve once, approve for the rest of the task (D21), or reject with a note: on its card and in the session view. */
+/** Approve once, for the task, a persistent sandbox resource, or reject with a note. */
 export function PermissionActions({ task, pending }: { task: Task; pending: PendingPermission }) {
   const decide = useAria((s) => s.decidePermission);
   const [rejecting, setRejecting] = useState(false);
+  const [confirmingAlways, setConfirmingAlways] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const act = async (decision: PermissionDecision) => {
@@ -39,12 +41,26 @@ export function PermissionActions({ task, pending }: { task: Task; pending: Pend
             Approve for this task
           </Button>
         )}
+        {pending.sandbox?.persistent && !pending.everyTime && !confirmingAlways && (
+          <Button testId="permission-always" disabled={busy} title="Save this exact sandbox resource, then confirm it" onClick={() => setConfirmingAlways(true)}>
+            Always allow this…
+          </Button>
+        )}
         {!rejecting && (
           <Button testId="permission-reject" disabled={busy} title="It carries on without it" onClick={() => setRejecting(true)}>
             Reject…
           </Button>
         )}
       </div>
+      {confirmingAlways && pending.sandbox && (
+        <div className="rounded-md border border-warn/40 bg-canvas p-2 text-xs text-muted" data-testid="permission-always-confirm">
+          Save an exact exception for <span className="break-all font-mono text-fg">{pending.sandbox.target}</span>? This applies to future sandboxed tasks and can be removed in Customize › Permissions.
+          <div className="mt-2 flex gap-1.5">
+            <Button testId="permission-always-confirm-button" primary disabled={busy} onClick={() => void act("always")}>Save and allow</Button>
+            <Button onClick={() => setConfirmingAlways(false)}>Back</Button>
+          </div>
+        </div>
+      )}
       {rejecting && (
         <form
           className="flex gap-1.5"
@@ -113,7 +129,7 @@ export function PermissionCard({ card }: { card: Extract<CardItem, { cardType: "
       <Receipt
         testId="card-permission"
         cardId={card.id}
-        icon={decided === "once" || decided === "task" ? <Check className="h-3.5 w-3.5 text-ok" /> : <CircleMinus className="h-3.5 w-3.5" />}
+        icon={decided === "once" || decided === "task" || decided === "always" ? <Check className="h-3.5 w-3.5 text-ok" /> : <CircleMinus className="h-3.5 w-3.5" />}
         shortId={p.shortId}
         title={task?.title ?? "A task"}
         summary={
@@ -137,7 +153,7 @@ export function PermissionCard({ card }: { card: Extract<CardItem, { cardType: "
       title={
         <span>
           <ShortId id={p.shortId} />
-          {task?.title ?? "A task"} {pending ? "needs your approval" : "asked for approval"}
+          {task?.title ?? "A task"} {pending ? (p.sandbox ? "was blocked by the sandbox" : "needs your approval") : (p.sandbox ? "hit a sandbox block" : "asked for approval")}
           {task && <span className="font-normal text-muted"> · {task.repoName}</span>}
         </span>
       }
@@ -149,6 +165,7 @@ export function PermissionCard({ card }: { card: Extract<CardItem, { cardType: "
         {p.why && <div>For: {p.why}</div>}
         {p.where && <div className="truncate">In: {p.where}</div>}
         <div data-testid="permission-reason">{p.reason}</div>
+        {p.sandbox && <div className="text-warn" data-testid="permission-sandbox-risk">Allowing this exception would {p.sandbox.label}.</div>}
         {!p.sandboxed && <div className="text-warn">This task isn't sandboxed: what you approve runs with your own access to this PC.</div>}
       </div>
       {decided && (
