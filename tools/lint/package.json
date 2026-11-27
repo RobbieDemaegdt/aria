@@ -1,0 +1,13 @@
+{
+  "name": "@aria/lint-typescript",
+  "version": "0.1.0",
+  "private": true,
+  "description": "typescript-eslint with the TypeScript 6 it needs: TypeScript 7 has no compiler API yet (delete this package once it's supported)",
+  "type": "module",
+  "exports": "./index.js",
+  "devDependencies": {
+    "ts-api-utils": "2.5.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1"
+  }
+}

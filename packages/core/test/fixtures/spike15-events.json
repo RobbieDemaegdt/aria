@@ -1,0 +1,387 @@
+{
+ "note": "Spike 15 (2026-10-19, runtime 1.0.98): getEvents() of a resumed session after three ask_user questions (made-up answers: Green picked; Teal and a two-line fact in your own words), two shell commands (one approved, one refused) and a compaction. Only these event types are kept; the scratch folder's path is replaced.",
+ "events": [
+  {
+   "id": "9838a869-741d-4c01-b801-13d3fc5d3689",
+   "parentId": "63a33958-881f-4607-ae53-9c95f230f35f",
+   "timestamp": "2026-10-19T14:50:01.538Z",
+   "type": "tool.execution_start",
+   "data": {
+    "toolCallId": "toolu_01GEUnFHNgc8TKPSLYnkXqea",
+    "toolName": "ask_user",
+    "arguments": {
+     "question": "Q1: which colour?",
+     "choices": [
+      "Red",
+      "Green",
+      "Blue"
+     ]
+    },
+    "turnId": "0",
+    "model": "claude-haiku-5.5",
+    "toolTitle": "Asking user"
+   }
+  },
+  {
+   "id": "1f8a8bc6-b256-445c-8903-fdcf1f809371",
+   "parentId": "9838a869-741d-4c01-b801-13d3fc5d3689",
+   "timestamp": "2026-10-19T14:50:01.562Z",
+   "type": "tool.execution_complete",
+   "data": {
+    "toolCallId": "toolu_01GEUnFHNgc8TKPSLYnkXqea",
+    "model": "claude-haiku-5.5",
+    "interactionId": "86078a1e-ae52-4e45-b2fb-807976255bf3",
+    "turnId": "0",
+    "rte": true,
+    "success": true,
+    "result": {
+     "content": "User selected: Green"
+    },
+    "toolTelemetry": {
+     "properties": {
+      "outcome": "answered",
+      "had_choices": true,
+      "was_freeform": false
+     },
+     "restrictedProperties": {
+      "question": "Q1: which colour?",
+      "choices": "[\"Red\",\"Green\",\"Blue\"]",
+      "answer": "Green"
+     },
+     "metrics": {
+      "result_token_count": 5
+     }
+    }
+   }
+  },
+  {
+   "id": "e86c59b1-5085-46e9-94d0-bdd5f89b87b8",
+   "parentId": "6b8a719f-5f58-4c4b-b8bf-a4f4c156be9f",
+   "timestamp": "2026-10-19T14:50:02.909Z",
+   "type": "tool.execution_start",
+   "data": {
+    "toolCallId": "toolu_019CraxRpHuSpE6i66Zkhk9W",
+    "toolName": "ask_user",
+    "arguments": {
+     "choices": [
+      "Red",
+      "Green",
+      "Blue"
+     ],
+     "question": "Q2: and a second colour?"
+    },
+    "turnId": "1",
+    "model": "claude-haiku-5.5",
+    "toolTitle": "Asking user"
+   }
+  },
+  {
+   "id": "ba4e3498-3fe3-476b-8fea-a191f69bc31a",
+   "parentId": "e86c59b1-5085-46e9-94d0-bdd5f89b87b8",
+   "timestamp": "2026-10-19T14:50:02.912Z",
+   "type": "tool.execution_complete",
+   "data": {
+    "toolCallId": "toolu_019CraxRpHuSpE6i66Zkhk9W",
+    "model": "claude-haiku-5.5",
+    "interactionId": "86078a1e-ae52-4e45-b2fb-807976255bf3",
+    "turnId": "1",
+    "rte": true,
+    "success": true,
+    "result": {
+     "content": "User responded: Teal"
+    },
+    "toolTelemetry": {
+     "properties": {
+      "outcome": "answered",
+      "had_choices": true,
+      "was_freeform": true
+     },
+     "restrictedProperties": {
+      "question": "Q2: and a second colour?",
+      "choices": "[\"Red\",\"Green\",\"Blue\"]",
+      "answer": "Teal"
+     },
+     "metrics": {
+      "result_token_count": 6
+     }
+    }
+   }
+  },
+  {
+   "id": "998a1db1-420d-41a9-a6ce-26fb319815f9",
+   "parentId": "a223ab22-fce6-4295-ad6f-34b971cf953f",
+   "timestamp": "2026-10-19T14:50:04.065Z",
+   "type": "tool.execution_start",
+   "data": {
+    "toolCallId": "toolu_015ComoRF7ePKiQnSGQkhL4U",
+    "toolName": "ask_user",
+    "arguments": {
+     "question": "Q3: one fact about your project?"
+    },
+    "turnId": "2",
+    "model": "claude-haiku-5.5",
+    "toolTitle": "Asking user"
+   }
+  },
+  {
+   "id": "383c2635-a339-4c1b-971f-30123392badf",
+   "parentId": "998a1db1-420d-41a9-a6ce-26fb319815f9",
+   "timestamp": "2026-10-19T14:50:04.068Z",
+   "type": "tool.execution_complete",
+   "data": {
+    "toolCallId": "toolu_015ComoRF7ePKiQnSGQkhL4U",
+    "model": "claude-haiku-5.5",
+    "interactionId": "86078a1e-ae52-4e45-b2fb-807976255bf3",
+    "turnId": "2",
+    "rte": true,
+    "success": true,
+    "result": {
+     "content": "User responded:   Moonrise uses pnpm, not npm.\n  Keep it that way.  "
+    },
+    "toolTelemetry": {
+     "properties": {
+      "outcome": "answered",
+      "had_choices": false,
+      "was_freeform": true
+     },
+     "restrictedProperties": {
+      "question": "Q3: one fact about your project?",
+      "answer": "  Moonrise uses pnpm, not npm.\n  Keep it that way.  "
+     },
+     "metrics": {
+      "result_token_count": 23
+     }
+    }
+   }
+  },
+  {
+   "id": "5b2e0542-4578-46cd-98e9-849ec00627e3",
+   "parentId": "50e045d6-f022-4645-a998-7d27c397935a",
+   "timestamp": "2026-10-19T14:50:07.515Z",
+   "type": "tool.execution_start",
+   "data": {
+    "toolCallId": "toolu_01XPMW3f1QrE87CvdqSnUFEa",
+    "toolName": "powershell",
+    "arguments": {
+     "command": "Get-Date -Format yyyy",
+     "description": "Print current year"
+    },
+    "turnId": "0",
+    "model": "claude-haiku-5.5",
+    "toolTitle": "Running command",
+    "shellToolInfo": {
+     "possiblePaths": [
+      "yyyy"
+     ],
+     "hasWriteFileRedirection": false
+    }
+   }
+  },
+  {
+   "id": "d17da4cf-fd88-4986-b5e8-1470d48081b8",
+   "parentId": "5b2e0542-4578-46cd-98e9-849ec00627e3",
+   "timestamp": "2026-10-19T14:50:07.551Z",
+   "type": "permission.requested",
+   "data": {
+    "requestId": "66f20041-87b7-47c5-8bb6-0c1340784b52",
+    "permissionRequest": {
+     "kind": "shell",
+     "toolCallId": "toolu_01XPMW3f1QrE87CvdqSnUFEa",
+     "fullCommandText": "Get-Date -Format yyyy",
+     "shellType": "powershell",
+     "intention": "Print current year",
+     "commands": [
+      {
+       "identifier": "Get-Date -Format yyyy",
+       "readOnly": false
+      }
+     ],
+     "commandSegments": [
+      {
+       "identifier": "Get-Date",
+       "fullCommandText": "Get-Date -Format yyyy"
+      }
+     ],
+     "possiblePaths": [],
+     "canOfferSessionApproval": false,
+     "possibleUrls": [],
+     "hasWriteFileRedirection": false
+    },
+    "promptRequest": {
+     "kind": "commands",
+     "fullCommandText": "Get-Date -Format yyyy",
+     "intention": "Print current year",
+     "commandIdentifiers": [
+      "Get-Date -Format yyyy"
+     ],
+     "canOfferSessionApproval": false,
+     "toolCallId": "toolu_01XPMW3f1QrE87CvdqSnUFEa"
+    },
+    "agentMode": "interactive",
+    "permissionMode": "manual",
+    "ownerSessionId": "aria-spike-15-1792421397068"
+   }
+  },
+  {
+   "id": "f404ae86-100d-4a67-84b7-0972aadac241",
+   "parentId": "d17da4cf-fd88-4986-b5e8-1470d48081b8",
+   "timestamp": "2026-10-19T14:50:07.556Z",
+   "type": "permission.completed",
+   "data": {
+    "requestId": "66f20041-87b7-47c5-8bb6-0c1340784b52",
+    "toolCallId": "toolu_01XPMW3f1QrE87CvdqSnUFEa",
+    "result": {
+     "kind": "approved"
+    }
+   }
+  },
+  {
+   "id": "aeb4aa14-eea2-4f12-bc78-52789b58a8d3",
+   "parentId": "f404ae86-100d-4a67-84b7-0972aadac241",
+   "timestamp": "2026-10-19T14:50:08.397Z",
+   "type": "tool.execution_complete",
+   "data": {
+    "toolCallId": "toolu_01XPMW3f1QrE87CvdqSnUFEa",
+    "model": "claude-haiku-5.5",
+    "interactionId": "e1dbacd7-51c0-4a0e-ba94-91a0c69a00ed",
+    "turnId": "0",
+    "rte": true,
+    "shellExecution": {
+     "exitCode": 0
+    },
+    "success": true,
+    "result": {
+     "content": "2026\n<shellId: 0 completed with exit code 0>"
+    },
+    "toolTelemetry": {
+     "properties": {
+      "customTimeout": "false",
+      "executionMode": "sync",
+      "detached": "false",
+      "sandboxApplied": "false",
+      "sandboxOptOutRequested": "false"
+     },
+     "metrics": {
+      "commandTimeout": 30000,
+      "result_token_count": 20
+     }
+    }
+   }
+  },
+  {
+   "id": "4b754595-33f4-41f6-91ec-c9143b048da7",
+   "parentId": "3eda0b0e-2dce-4ef7-b2a1-62b49e65709d",
+   "timestamp": "2026-10-19T14:50:09.701Z",
+   "type": "tool.execution_start",
+   "data": {
+    "toolCallId": "toolu_014oGf4Tjd3q5kQ2XpcXSY3G",
+    "toolName": "powershell",
+    "arguments": {
+     "command": "Get-Location",
+     "description": "Print current location"
+    },
+    "turnId": "1",
+    "model": "claude-haiku-5.5",
+    "toolTitle": "Running command",
+    "shellToolInfo": {
+     "possiblePaths": [],
+     "hasWriteFileRedirection": false
+    }
+   }
+  },
+  {
+   "id": "e4b8bd7a-317e-4c70-9de6-199daf9342b6",
+   "parentId": "4b754595-33f4-41f6-91ec-c9143b048da7",
+   "timestamp": "2026-10-19T14:50:09.717Z",
+   "type": "permission.requested",
+   "data": {
+    "requestId": "7afdae65-2195-4b43-a719-680060ba3dd4",
+    "permissionRequest": {
+     "kind": "shell",
+     "toolCallId": "toolu_014oGf4Tjd3q5kQ2XpcXSY3G",
+     "fullCommandText": "Get-Location",
+     "shellType": "powershell",
+     "intention": "Print current location",
+     "commands": [
+      {
+       "identifier": "Get-Location",
+       "readOnly": false
+      }
+     ],
+     "commandSegments": [
+      {
+       "identifier": "Get-Location",
+       "fullCommandText": "Get-Location"
+      }
+     ],
+     "possiblePaths": [],
+     "canOfferSessionApproval": false,
+     "possibleUrls": [],
+     "hasWriteFileRedirection": false
+    },
+    "promptRequest": {
+     "kind": "commands",
+     "fullCommandText": "Get-Location",
+     "intention": "Print current location",
+     "commandIdentifiers": [
+      "Get-Location"
+     ],
+     "canOfferSessionApproval": false,
+     "toolCallId": "toolu_014oGf4Tjd3q5kQ2XpcXSY3G"
+    },
+    "agentMode": "interactive",
+    "permissionMode": "manual",
+    "ownerSessionId": "aria-spike-15-1792421397068"
+   }
+  },
+  {
+   "id": "5430f17f-9ee2-4c13-9be0-d23cdff5e721",
+   "parentId": "e4b8bd7a-317e-4c70-9de6-199daf9342b6",
+   "timestamp": "2026-10-19T14:50:09.718Z",
+   "type": "permission.completed",
+   "data": {
+    "requestId": "7afdae65-2195-4b43-a719-680060ba3dd4",
+    "toolCallId": "toolu_014oGf4Tjd3q5kQ2XpcXSY3G",
+    "result": {
+     "kind": "denied-interactively-by-user",
+     "feedback": "Refused by the spike: only the first command may run."
+    }
+   }
+  },
+  {
+   "id": "8c9b3be7-253a-416c-adf9-42a92350abe3",
+   "parentId": "5430f17f-9ee2-4c13-9be0-d23cdff5e721",
+   "timestamp": "2026-10-19T14:50:09.721Z",
+   "type": "tool.execution_complete",
+   "data": {
+    "toolCallId": "toolu_014oGf4Tjd3q5kQ2XpcXSY3G",
+    "model": "claude-haiku-5.5",
+    "interactionId": "e1dbacd7-51c0-4a0e-ba94-91a0c69a00ed",
+    "turnId": "1",
+    "rte": true,
+    "success": false,
+    "error": {
+     "message": "The user rejected this tool call. User feedback: Refused by the spike: only the first command may run.",
+     "code": "denied"
+    },
+    "toolTelemetry": {
+     "properties": {
+      "shell_error_category": "permission_denied"
+     }
+    }
+   }
+  },
+  {
+   "id": "c01383e1-d0f9-4574-82a8-49e1b6d8885c",
+   "parentId": "b0b8831d-37fe-4002-8775-2e6db4b787e5",
+   "timestamp": "2026-10-19T14:50:19.502Z",
+   "type": "session.compaction_complete",
+   "data": {
+    "success": true,
+    "messagesRemoved": 13,
+    "tokensRemoved": 45,
+    "summaryContent": "(The runtime's summary, left out here.)"
+   }
+  }
+ ]
+}

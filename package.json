@@ -1,0 +1,57 @@
+{
+  "name": "aria",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ARIA: a single-chat assistant on top of Copilot CLI (see PLAN.md)",
+  "license": "MIT",
+  "author": "Robbie Demaegdt",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RobbieDemaegdt/aria.git"
+  },
+  "homepage": "https://github.com/RobbieDemaegdt/aria#readme",
+  "bugs": {
+    "url": "https://github.com/RobbieDemaegdt/aria/issues"
+  },
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "lint": "eslint --max-warnings 0 packages apps",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev": "npm run dev -w @aria/desktop",
+    "build": "npm run build -w @aria/desktop",
+    "start": "npm run start -w @aria/desktop",
+    "pack": "npm run pack -w @aria/desktop",
+    "dist": "npm run dist -w @aria/desktop",
+    "e2e": "npm run e2e -w @aria/desktop",
+    "e2e:real": "npm run e2e:real -w @aria/desktop"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.14.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.14.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  },
+  "overrides": {
+    "zod": "4.6.7",
+    "ts-api-utils": {
+      "typescript": "6.0.3"
+    }
+  },
+  "allowScripts": {
+    "electron@44.10.1": true,
+    "electron-winstaller": false,
+    "koffi": false
+  }
+}

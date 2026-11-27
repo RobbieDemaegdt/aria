@@ -1,0 +1,136 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish installer to GitHub Releases"
+        required: false
+        type: boolean
+        default: true
+      release_tag:
+        description: "Release tag (e.g. v0.1.0; defaults to v<package.json version>)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build-installer:
+    name: Build Windows NSIS Installer
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Resolve release
+        id: release
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          INPUT_PUBLISH: ${{ inputs.publish_release }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          # Tag pushes and manual runs publish; pushes to main only build. Checked here rather than with
+          # `inputs.publish_release != false`, which is false on a push (null and false compare equal).
+          $publish = $env:IS_TAG -eq "true" -or ($env:EVENT_NAME -eq "workflow_dispatch" -and $env:INPUT_PUBLISH -eq "true")
+
+          $pkg = Get-Content -Raw -Path "apps/desktop/package.json" | ConvertFrom-Json
+          $tag = if ($env:IS_TAG -eq "true") {
+            $env:REF_NAME
+          } elseif (-not [string]::IsNullOrWhiteSpace($env:INPUT_TAG)) {
+            $env:INPUT_TAG.Trim()
+          } else {
+            "v$($pkg.version)"
+          }
+
+          if ($tag -notmatch '^v?(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)$') {
+            throw "Invalid release tag format: $tag (expected v<major>.<minor>.<patch>)"
+          }
+
+          "publish=$(if ($publish) { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$($Matches[1])" >> $env:GITHUB_OUTPUT
+          Write-Host "Release tag: $tag (publish: $publish)"
+
+      - name: Stamp release version
+        if: steps.release.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: npm pkg set "version=$env:VERSION" -w @aria/desktop
+
+      - name: Build Windows installer
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Verify installer artifact
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path "apps/desktop/dist/ARIA-Setup-*.exe" | Select-Object -First 1
+          if (-not $exe -or $exe.Length -eq 0) {
+            throw "Installer executable was not produced in apps/desktop/dist."
+          }
+          Write-Host "Built installer: $($exe.FullName) ($([math]::Round($exe.Length / 1MB, 2)) MB)"
+
+      - name: Publish installer to GitHub Releases
+        if: steps.release.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          $tag = $env:TAG
+          $assets = Get-ChildItem -Path "apps/desktop/dist/ARIA-Setup-*.exe*" | ForEach-Object { $_.FullName }
+          if (-not $assets) {
+            throw "No installer assets found to upload."
+          }
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @assets --clobber
+          } else {
+            gh release create $tag @assets --target $env:GITHUB_SHA --title "ARIA $tag" --generate-notes
+          }
+
+          $releaseJson = gh release view $tag --json url,assets | ConvertFrom-Json
+          $exeAsset = $releaseJson.assets | Where-Object { $_.name -like "*.exe" } | Select-Object -First 1
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $summary = @(
+              "### ARIA Windows Installer ($tag)"
+              ""
+              "- **Release page:** $($releaseJson.url)"
+            )
+            if ($exeAsset) {
+              $sizeMb = [math]::Round($exeAsset.size / 1MB, 2)
+              $summary += "- **Direct download:** [$($exeAsset.name) ($sizeMb MB)]($($exeAsset.url))"
+            }
+            $summary -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }

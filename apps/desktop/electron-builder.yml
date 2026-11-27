@@ -1,0 +1,56 @@
+appId: dev.aria.desktop
+productName: ARIA
+copyright: Copyright (c) 2026 Robbie Demaegdt
+directories:
+  buildResources: build
+  output: dist
+npmRebuild: false
+publish: null
+asar: true
+files:
+  - "out/**/*"
+  - "package.json"
+  - "!node_modules/@aria/**"
+  - "!**/node_modules/@aria/**"
+  - "!**/node_modules/shiki/**"
+  - "!**/node_modules/@shikijs/**"
+  - "!**/node_modules/lucide-react/**"
+  - "!**/node_modules/react/**"
+  - "!**/node_modules/react-dom/**"
+  - "!**/node_modules/react-markdown/**"
+  - "!**/node_modules/react-resizable-panels/**"
+  - "!**/node_modules/remark-gfm/**"
+  - "!**/node_modules/zustand/**"
+  - "!**/node_modules/clsx/**"
+  - "!**/node_modules/koffi/src/**"
+  - "!**/node_modules/koffi/vendor/**"
+  - "!**/node_modules/koffi/build/**"
+asarUnpack:
+  - "**/node_modules/@github/copilot-sdk*/**"
+  - "**/node_modules/koffi/**"
+  - "**/node_modules/@koromix/**"
+  # The window's icon: Windows reads it from a real file (src/main/image-files.ts). The tray's PNGs are read from inside the archive.
+  - "out/main/chunks/*.ico"
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+  enableEmbeddedAsarIntegrityValidation: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  executableName: ARIA
+nsis:
+  artifactName: "${productName}-Setup-${version}.${ext}"
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: ARIA
+  uninstallDisplayName: ARIA
+  deleteAppDataOnUninstall: false

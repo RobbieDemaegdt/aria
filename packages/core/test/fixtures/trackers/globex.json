@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "id": "globex",
+  "label": "Globex Desk",
+  "info": {
+    "urlTemplate": "https://globex.example/tickets/{id}",
+    "taskRefPlaceholder": "Ticket (e.g. GLX-42) or globex.example link",
+    "serverHint": "Globex Cloud"
+  },
+  "servers": { "match": ["globex"], "fallback": "Globex" },
+  "taskRef": {
+    "id": "GLX-[1-9]\\d{0,6}",
+    "prefixes": ["ticket"],
+    "bare": true,
+    "urls": ["globex.example/tickets/{id}"],
+    "caseInsensitive": true,
+    "normalize": "upper"
+  },
+  "ids": { "task": "GLX-[1-9]\\d{0,6}", "entity": "[A-Za-z0-9][A-Za-z0-9_-]{0,39}", "timeLog": "[1-9]\\d{0,11}" },
+  "objectKeys": { "id": ["id", "ref"], "text": ["name", "label"], "name": ["fullName", "name"] },
+  "tools": {
+    "testConnection": "get_profile",
+    "reserved": ["log_hours", "change_hours", "remove_hours"],
+    "confirm": ["remove_hours"]
+  },
+  "tasks": {
+    "myTasks": ["fetch_my_tickets"],
+    "byId": { "tools": ["fetch_tickets"], "args": { "refs": { "$list": "ids" } } },
+    "lists": ["tickets"],
+    "fields": {
+      "id": ["ref"],
+      "title": ["subject"],
+      "status": ["state"],
+      "priority": ["urgency"],
+      "taskType": ["kind"],
+      "projectId": ["board.code"],
+      "projectName": ["board.title"],
+      "customerId": ["client.id"],
+      "customerName": ["client.name"],
+      "dueDate": ["due"],
+      "modifiedAt": ["changed"]
+    },
+    "comments": { "list": ["notes"], "text": ["text"], "by": ["by"], "id": ["id"] },
+    "closedStatuses": ["resolved", "dropped"],
+    "statusRank": ["active", "waiting", "new"]
+  },
+  "timeLogs": {
+    "byRange": { "tools": ["fetch_hours"], "args": { "from": "{from}", "to": "{until}" } },
+    "lists": ["hours"],
+    "emptyText": ["no hours"],
+    "fields": {
+      "id": ["id"], "taskId": ["ticket"], "taskTitle": ["ticketSubject"],
+      "start": ["from"], "end": ["to"], "comment": ["note"]
+    },
+    "time": "utc",
+    "create": {
+      "tool": "log_hours",
+      "args": { "hours": { "$each": "rows", "item": {
+        "ticket": "{taskId}", "from": "{start}", "to": "{end}", "note": "{comment}"
+      } } },
+      "result": {
+        "perRow": { "list": ["logged"], "index": "index", "id": ["id"], "error": "error" },
+        "match": { "start": ["from"], "end": ["to"], "task": ["ticket"] }
+      }
+    },
+    "update": {
+      "tool": "change_hours",
+      "args": { "id": "{entryId}", "from": "{start}", "to": "{end}", "note": "{comment}",
+                "ticket": { "$if": "taskId", "value": "{taskId}" } }
+    },
+    "delete": { "tool": "remove_hours", "args": { "ids": { "$list": "ids" } } }
+  },
+  "timekeeper": {
+    "steps": [
+      "The user's open Globex tickets ({prefix}fetch_my_tickets) and any ticket refs that need their details ({prefix}fetch_tickets).",
+      "Hours already logged for the target date ({prefix}fetch_hours)."
+    ],
+    "taskUpdatesName": "Globex ticket updates"
+  }
+}

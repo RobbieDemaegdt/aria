@@ -1,0 +1,182 @@
+{
+  "note": "Phase 9 recorded SDK event stream: plan-mode and interactive worker with reasoning, exit_plan_mode, refusal_fallback model change, shell permission request/completion, ask_user, and interactive session.idle.",
+  "events": [
+    {
+      "id": "plan-ev-1",
+      "parentId": null,
+      "timestamp": "2026-10-27T09:00:00.100Z",
+      "type": "user.message",
+      "data": {
+        "content": "Plan and implement rate limiting for the API."
+      }
+    },
+    {
+      "id": "plan-ev-2",
+      "parentId": "plan-ev-1",
+      "timestamp": "2026-10-27T09:00:00.200Z",
+      "type": "assistant.turn_start",
+      "data": {
+        "turnId": "0"
+      }
+    },
+    {
+      "id": "plan-ev-3",
+      "parentId": "plan-ev-2",
+      "timestamp": "2026-10-27T09:00:00.350Z",
+      "type": "assistant.reasoning",
+      "data": {
+        "reasoningId": "reas_plan_1",
+        "content": "Analyzing existing middleware to design token-bucket rate limiting."
+      }
+    },
+    {
+      "id": "plan-ev-4",
+      "parentId": "plan-ev-3",
+      "timestamp": "2026-10-27T09:00:00.500Z",
+      "type": "exit_plan_mode.requested",
+      "data": {
+        "requestId": "plan_req_1",
+        "summary": "Add token-bucket rate limiter middleware",
+        "planContent": "## Plan\n1. Install rate-limiter package\n2. Add middleware in `src/api.ts`\n3. Add tests",
+        "actions": ["autopilot", "interactive", "exit_only"],
+        "recommendedAction": "interactive"
+      }
+    },
+    {
+      "id": "plan-ev-5",
+      "parentId": "plan-ev-4",
+      "timestamp": "2026-10-27T09:00:01.000Z",
+      "type": "exit_plan_mode.completed",
+      "data": {
+        "requestId": "plan_req_1",
+        "approved": true,
+        "selectedAction": "interactive"
+      }
+    },
+    {
+      "id": "plan-ev-6",
+      "parentId": "plan-ev-5",
+      "timestamp": "2026-10-27T09:00:01.100Z",
+      "type": "session.model_change",
+      "data": {
+        "previousModel": "claude-sonnet-5.5",
+        "newModel": "claude-haiku-5.5",
+        "reasoningEffort": "medium",
+        "cause": "refusal_fallback"
+      }
+    },
+    {
+      "id": "plan-ev-7",
+      "parentId": "plan-ev-6",
+      "timestamp": "2026-10-27T09:00:01.250Z",
+      "type": "tool.execution_start",
+      "data": {
+        "toolCallId": "toolu_perm_1",
+        "toolName": "powershell",
+        "arguments": {
+          "command": "npm install lodash"
+        },
+        "turnId": "0",
+        "model": "claude-haiku-5.5"
+      }
+    },
+    {
+      "id": "plan-ev-8",
+      "parentId": "plan-ev-7",
+      "timestamp": "2026-10-27T09:00:01.300Z",
+      "type": "permission.requested",
+      "data": {
+        "requestId": "perm_req_1",
+        "permissionRequest": {
+          "kind": "shell",
+          "toolCallId": "toolu_perm_1",
+          "fullCommandText": "npm install lodash",
+          "intention": "Install lodash utility library",
+          "commands": [{ "identifier": "npm install lodash", "readOnly": false }],
+          "commandSegments": [{ "fullCommandText": "npm install lodash" }],
+          "possiblePaths": [],
+          "possibleUrls": []
+        }
+      }
+    },
+    {
+      "id": "plan-ev-9",
+      "parentId": "plan-ev-8",
+      "timestamp": "2026-10-27T09:00:01.600Z",
+      "type": "permission.completed",
+      "data": {
+        "requestId": "perm_req_1",
+        "toolCallId": "toolu_perm_1",
+        "result": {
+          "kind": "approved-once"
+        }
+      }
+    },
+    {
+      "id": "plan-ev-10",
+      "parentId": "plan-ev-7",
+      "timestamp": "2026-10-27T09:00:01.900Z",
+      "type": "tool.execution_complete",
+      "data": {
+        "toolCallId": "toolu_perm_1",
+        "model": "claude-haiku-5.5",
+        "turnId": "0",
+        "success": true,
+        "result": {
+          "content": "added 1 package in 0.8s"
+        }
+      }
+    },
+    {
+      "id": "plan-ev-11",
+      "parentId": "plan-ev-2",
+      "timestamp": "2026-10-27T09:00:02.100Z",
+      "type": "tool.execution_start",
+      "data": {
+        "toolCallId": "toolu_ask_rate_1",
+        "toolName": "ask_user",
+        "arguments": {
+          "question": "What should the default requests-per-minute limit be?",
+          "choices": ["60", "120", "300"]
+        },
+        "turnId": "0",
+        "model": "claude-haiku-5.5"
+      }
+    },
+    {
+      "id": "plan-ev-12",
+      "parentId": "plan-ev-11",
+      "timestamp": "2026-10-27T09:00:02.500Z",
+      "type": "tool.execution_complete",
+      "data": {
+        "toolCallId": "toolu_ask_rate_1",
+        "model": "claude-haiku-5.5",
+        "turnId": "0",
+        "success": true,
+        "result": {
+          "content": "User selected: 120"
+        }
+      }
+    },
+    {
+      "id": "plan-ev-13",
+      "parentId": "plan-ev-2",
+      "timestamp": "2026-10-27T09:00:02.800Z",
+      "type": "assistant.message",
+      "data": {
+        "messageId": "msg_plan_interactive_1",
+        "content": "Configured the rate limiter at 120 requests per minute.",
+        "model": "claude-haiku-5.5"
+      }
+    },
+    {
+      "id": "plan-ev-14",
+      "parentId": "plan-ev-13",
+      "timestamp": "2026-10-27T09:00:02.900Z",
+      "type": "session.idle",
+      "data": {
+        "mode": "interactive"
+      }
+    }
+  ]
+}

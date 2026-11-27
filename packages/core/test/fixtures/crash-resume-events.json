@@ -1,0 +1,150 @@
+{
+  "note": "Phase 9 recorded SDK event stream: mid-tool crash and subsequent session.resume with failed interrupted tool call, interrupted_tools warning, and continuation turn to completion.",
+  "events": [
+    {
+      "id": "crash-ev-1",
+      "parentId": null,
+      "timestamp": "2026-10-27T10:00:00.100Z",
+      "type": "user.message",
+      "data": {
+        "content": "Refactor authentication token validation and run the test suite."
+      }
+    },
+    {
+      "id": "crash-ev-2",
+      "parentId": "crash-ev-1",
+      "timestamp": "2026-10-27T10:00:00.200Z",
+      "type": "assistant.turn_start",
+      "data": {
+        "turnId": "0"
+      }
+    },
+    {
+      "id": "crash-ev-3",
+      "parentId": "crash-ev-2",
+      "timestamp": "2026-10-27T10:00:00.350Z",
+      "type": "tool.execution_start",
+      "data": {
+        "toolCallId": "toolu_crash_1",
+        "toolName": "powershell",
+        "arguments": {
+          "command": "npm test"
+        },
+        "turnId": "0",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "crash-ev-4",
+      "parentId": "crash-ev-3",
+      "timestamp": "2026-10-27T10:05:00.100Z",
+      "type": "session.resume",
+      "data": {
+        "sessionWasActive": true,
+        "eventCount": 3
+      }
+    },
+    {
+      "id": "crash-ev-5",
+      "parentId": "crash-ev-3",
+      "timestamp": "2026-10-27T10:05:00.150Z",
+      "type": "tool.execution_complete",
+      "data": {
+        "toolCallId": "toolu_crash_1",
+        "model": "claude-sonnet-5.5",
+        "turnId": "0",
+        "success": false,
+        "error": {
+          "message": "Tool execution was interrupted before a result was recorded."
+        }
+      }
+    },
+    {
+      "id": "crash-ev-6",
+      "parentId": "crash-ev-4",
+      "timestamp": "2026-10-27T10:05:00.200Z",
+      "type": "session.warning",
+      "data": {
+        "warningType": "interrupted_tools",
+        "message": "1 tool call was interrupted when the session closed."
+      }
+    },
+    {
+      "id": "crash-ev-7",
+      "parentId": "crash-ev-6",
+      "timestamp": "2026-10-27T10:05:00.500Z",
+      "type": "user.message",
+      "data": {
+        "content": "ARIA was closed while you were working on this task. Check the current state of the worktree and continue."
+      }
+    },
+    {
+      "id": "crash-ev-8",
+      "parentId": "crash-ev-7",
+      "timestamp": "2026-10-27T10:05:00.600Z",
+      "type": "assistant.turn_start",
+      "data": {
+        "turnId": "1"
+      }
+    },
+    {
+      "id": "crash-ev-9",
+      "parentId": "crash-ev-8",
+      "timestamp": "2026-10-27T10:05:00.800Z",
+      "type": "tool.execution_start",
+      "data": {
+        "toolCallId": "toolu_crash_retry_1",
+        "toolName": "powershell",
+        "arguments": {
+          "command": "npm test"
+        },
+        "turnId": "1",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "crash-ev-10",
+      "parentId": "crash-ev-9",
+      "timestamp": "2026-10-27T10:05:01.100Z",
+      "type": "tool.execution_complete",
+      "data": {
+        "toolCallId": "toolu_crash_retry_1",
+        "model": "claude-sonnet-5.5",
+        "turnId": "1",
+        "success": true,
+        "result": {
+          "content": "All 18 tests passed."
+        }
+      }
+    },
+    {
+      "id": "crash-ev-11",
+      "parentId": "crash-ev-8",
+      "timestamp": "2026-10-27T10:05:01.250Z",
+      "type": "assistant.message",
+      "data": {
+        "messageId": "msg_crash_resumed_1",
+        "content": "Resumed after interruption, re-ran tests, and confirmed everything passes.",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "crash-ev-12",
+      "parentId": "crash-ev-11",
+      "timestamp": "2026-10-27T10:05:01.300Z",
+      "type": "session.task_complete",
+      "data": {
+        "summary": "Completed token validation refactoring after crash recovery."
+      }
+    },
+    {
+      "id": "crash-ev-13",
+      "parentId": "crash-ev-12",
+      "timestamp": "2026-10-27T10:05:01.350Z",
+      "type": "session.idle",
+      "data": {
+        "mode": "autopilot"
+      }
+    }
+  ]
+}

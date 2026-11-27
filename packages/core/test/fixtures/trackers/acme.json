@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "id": "acme",
+  "label": "Acme Tracker",
+  "info": {
+    "urlTemplate": "https://acme.example/browse/{id}",
+    "taskRefPlaceholder": "Issue key (e.g. ACME-123) or acme.example link",
+    "serverHint": "Acme Cloud"
+  },
+  "servers": { "match": ["acme"], "fallback": "Acme" },
+  "taskRef": {
+    "id": "ACME-[1-9]\\d{0,6}",
+    "prefixes": ["issue"],
+    "bare": true,
+    "urls": ["acme.example/browse/{id}"],
+    "caseInsensitive": true,
+    "normalize": "upper"
+  },
+  "ids": { "task": "[A-Z][A-Z0-9]{1,9}-[1-9]\\d{0,6}", "entity": "[A-Za-z0-9][A-Za-z0-9_-]{0,39}", "timeLog": "[1-9]\\d{0,11}" },
+  "objectKeys": { "id": ["id", "key"], "text": ["name", "value"], "name": ["displayName", "name"] },
+  "tools": {
+    "testConnection": "get_current_user",
+    "reserved": ["add_worklogs", "update_worklog", "delete_worklogs"],
+    "confirm": ["delete_worklogs"]
+  },
+  "tasks": {
+    "myTasks": ["list_my_issues"],
+    "byId": { "tools": ["get_issues"], "args": { "keys": { "$list": "ids" } } },
+    "lists": ["issues"],
+    "fields": {
+      "id": ["key"],
+      "title": ["fields.summary"],
+      "status": ["fields.status"],
+      "priority": ["fields.priority"],
+      "taskType": ["fields.issuetype"],
+      "projectId": ["fields.project.key"],
+      "projectName": ["fields.project.name"],
+      "customerId": ["fields.account.id"],
+      "customerName": ["fields.account.name"],
+      "dueDate": ["fields.duedate"],
+      "modifiedAt": ["fields.updated"]
+    },
+    "comments": { "list": ["fields.comments"], "text": ["body"], "by": ["author"], "id": ["id"] },
+    "closedStatuses": ["done", "won't do"],
+    "statusRank": ["in progress", "in review", "to do", "backlog"]
+  },
+  "timeLogs": {
+    "byRange": { "tools": ["list_worklogs"], "args": { "from": "{from}", "to": "{until}" } },
+    "lists": ["worklogs"],
+    "emptyText": ["no worklogs"],
+    "fields": {
+      "id": ["id"], "taskId": ["issueKey"], "taskTitle": ["issueSummary"],
+      "start": ["started"], "end": ["ended"], "comment": ["comment"]
+    },
+    "time": "offset",
+    "create": {
+      "tool": "add_worklogs",
+      "args": { "worklogs": { "$each": "rows", "item": {
+        "issueKey": "{taskId}", "started": "{start}", "ended": "{end}", "comment": "{comment}"
+      } } },
+      "result": {
+        "perRow": { "list": ["created"], "index": "index", "id": ["id"], "error": "error" },
+        "match": { "start": ["started"], "end": ["ended"], "task": ["issueKey"] }
+      }
+    },
+    "update": {
+      "tool": "update_worklog",
+      "args": { "id": "{entryId}", "started": "{start}", "ended": "{end}", "comment": "{comment}",
+                "issueKey": { "$if": "taskId", "value": "{taskId}" } }
+    },
+    "delete": { "tool": "delete_worklogs", "args": { "ids": { "$list": "ids" } } }
+  },
+  "timekeeper": {
+    "steps": [
+      "The user's open Acme issues ({prefix}list_my_issues) and any issue keys that need their details ({prefix}get_issues).",
+      "Worklogs already registered for the target date ({prefix}list_worklogs)."
+    ],
+    "taskUpdatesName": "Acme issue updates"
+  }
+}

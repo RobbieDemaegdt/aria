@@ -1,0 +1,47 @@
+{
+  "name": "@aria/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ARIA desktop shell (Electron + React)",
+  "license": "MIT",
+  "author": "Robbie Demaegdt",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "pack": "electron-vite build && electron-builder --dir --publish never",
+    "dist": "electron-vite build && electron-builder --win nsis --publish never",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "e2e": "playwright test ui-",
+    "e2e:real": "playwright test phase1 phase2 perf-"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "1.0.22",
+    "@aria/core": "0.1.0",
+    "@aria/protocol": "0.1.0",
+    "clsx": "2.1.1",
+    "lucide-react": "1.58.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-markdown": "10.1.0",
+    "react-resizable-panels": "4.14.5",
+    "remark-gfm": "4.0.1",
+    "shiki": "4.5.0",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.10.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "6.0.0",
+    "tailwindcss": "4.3.3",
+    "vite": "8.3.4"
+  }
+}

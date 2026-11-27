@@ -1,0 +1,257 @@
+{
+  "note": "Phase 9 recorded SDK event stream: full autopilot worker execution with sub-agent tool calls and usage, intermediate idle before task_complete, autopilot continuation nudge filtering, and final session.task_complete.",
+  "events": [
+    {
+      "id": "auto-ev-1",
+      "parentId": null,
+      "timestamp": "2026-10-27T08:00:00.100Z",
+      "type": "user.message",
+      "data": {
+        "content": "Add a dark mode toggle and unit tests to Moonrise."
+      }
+    },
+    {
+      "id": "auto-ev-2",
+      "parentId": "auto-ev-1",
+      "timestamp": "2026-10-27T08:00:00.250Z",
+      "type": "assistant.turn_start",
+      "data": {
+        "turnId": "0"
+      }
+    },
+    {
+      "id": "auto-ev-3",
+      "parentId": "auto-ev-2",
+      "timestamp": "2026-10-27T08:00:00.350Z",
+      "type": "assistant.intent",
+      "data": {
+        "intent": "Inspecting repository structure"
+      }
+    },
+    {
+      "id": "auto-ev-4",
+      "parentId": "auto-ev-2",
+      "timestamp": "2026-10-27T08:00:00.500Z",
+      "type": "tool.execution_start",
+      "data": {
+        "toolCallId": "toolu_auto_view_1",
+        "toolName": "view",
+        "arguments": {
+          "path": "src/theme.ts"
+        },
+        "turnId": "0",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "auto-ev-5",
+      "parentId": "auto-ev-4",
+      "timestamp": "2026-10-27T08:00:00.620Z",
+      "type": "tool.execution_complete",
+      "data": {
+        "toolCallId": "toolu_auto_view_1",
+        "model": "claude-sonnet-5.5",
+        "turnId": "0",
+        "success": true,
+        "result": {
+          "content": "export const theme = { dark: false };"
+        }
+      }
+    },
+    {
+      "id": "auto-ev-6",
+      "parentId": "auto-ev-2",
+      "timestamp": "2026-10-27T08:00:00.700Z",
+      "type": "subagent.started",
+      "data": {
+        "subagentId": "sub-explore-1",
+        "agentName": "explore"
+      }
+    },
+    {
+      "id": "auto-ev-7",
+      "parentId": "auto-ev-6",
+      "timestamp": "2026-10-27T08:00:00.800Z",
+      "type": "tool.execution_start",
+      "agentId": "sub-explore-1",
+      "data": {
+        "toolCallId": "toolu_sub_grep_1",
+        "toolName": "grep",
+        "arguments": {
+          "pattern": "theme"
+        },
+        "turnId": "0",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "auto-ev-8",
+      "parentId": "auto-ev-7",
+      "timestamp": "2026-10-27T08:00:00.900Z",
+      "type": "tool.execution_complete",
+      "agentId": "sub-explore-1",
+      "data": {
+        "toolCallId": "toolu_sub_grep_1",
+        "model": "claude-sonnet-5.5",
+        "turnId": "0",
+        "success": true,
+        "result": {
+          "content": "src/theme.ts:1:export const theme = { dark: false };"
+        }
+      }
+    },
+    {
+      "id": "auto-ev-9",
+      "parentId": "auto-ev-6",
+      "timestamp": "2026-10-27T08:00:01.000Z",
+      "type": "assistant.usage",
+      "agentId": "sub-explore-1",
+      "data": {
+        "model": "claude-sonnet-5.5",
+        "copilotUsage": {
+          "totalNanoAiu": 180000000
+        }
+      }
+    },
+    {
+      "id": "auto-ev-10",
+      "parentId": "auto-ev-6",
+      "timestamp": "2026-10-27T08:00:01.050Z",
+      "type": "subagent.completed",
+      "data": {
+        "subagentId": "sub-explore-1"
+      }
+    },
+    {
+      "id": "auto-ev-11",
+      "parentId": "auto-ev-2",
+      "timestamp": "2026-10-27T08:00:01.200Z",
+      "type": "tool.execution_start",
+      "data": {
+        "toolCallId": "toolu_auto_edit_1",
+        "toolName": "edit",
+        "arguments": {
+          "path": "src/theme.ts",
+          "old_str": "export const theme = { dark: false };",
+          "new_str": "export const theme = { dark: true, toggleDark: () => true };"
+        },
+        "turnId": "0",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "auto-ev-12",
+      "parentId": "auto-ev-11",
+      "timestamp": "2026-10-27T08:00:01.350Z",
+      "type": "tool.execution_complete",
+      "data": {
+        "toolCallId": "toolu_auto_edit_1",
+        "model": "claude-sonnet-5.5",
+        "turnId": "0",
+        "success": true,
+        "result": {
+          "content": "File src/theme.ts updated."
+        }
+      }
+    },
+    {
+      "id": "auto-ev-13",
+      "parentId": "auto-ev-2",
+      "timestamp": "2026-10-27T08:00:01.450Z",
+      "type": "session.idle",
+      "data": {
+        "mode": "autopilot"
+      }
+    },
+    {
+      "id": "auto-ev-14",
+      "parentId": "auto-ev-13",
+      "timestamp": "2026-10-27T08:00:01.550Z",
+      "type": "user.message",
+      "data": {
+        "content": "Continue working on the task until complete.",
+        "isAutopilotContinuation": true
+      }
+    },
+    {
+      "id": "auto-ev-15",
+      "parentId": "auto-ev-14",
+      "timestamp": "2026-10-27T08:00:01.650Z",
+      "type": "assistant.turn_start",
+      "data": {
+        "turnId": "1"
+      }
+    },
+    {
+      "id": "auto-ev-16",
+      "parentId": "auto-ev-15",
+      "timestamp": "2026-10-27T08:00:01.800Z",
+      "type": "tool.execution_start",
+      "data": {
+        "toolCallId": "toolu_auto_ps_1",
+        "toolName": "powershell",
+        "arguments": {
+          "command": "npm test && git commit -am \"Add dark mode toggle\""
+        },
+        "turnId": "1",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "auto-ev-17",
+      "parentId": "auto-ev-16",
+      "timestamp": "2026-10-27T08:00:02.100Z",
+      "type": "tool.execution_complete",
+      "data": {
+        "toolCallId": "toolu_auto_ps_1",
+        "model": "claude-sonnet-5.5",
+        "turnId": "1",
+        "success": true,
+        "result": {
+          "content": "PASS src/theme.test.ts\n[aria/dark-mode 1a2b3c4] Add dark mode toggle"
+        }
+      }
+    },
+    {
+      "id": "auto-ev-18",
+      "parentId": "auto-ev-15",
+      "timestamp": "2026-10-27T08:00:02.250Z",
+      "type": "assistant.message",
+      "data": {
+        "messageId": "msg_auto_done_1",
+        "content": "I have implemented the dark mode toggle and verified all unit tests pass.",
+        "model": "claude-sonnet-5.5"
+      }
+    },
+    {
+      "id": "auto-ev-19",
+      "parentId": "auto-ev-15",
+      "timestamp": "2026-10-27T08:00:02.300Z",
+      "type": "assistant.usage",
+      "data": {
+        "model": "claude-sonnet-5.5",
+        "copilotUsage": {
+          "totalNanoAiu": 240000000
+        }
+      }
+    },
+    {
+      "id": "auto-ev-20",
+      "parentId": "auto-ev-15",
+      "timestamp": "2026-10-27T08:00:02.350Z",
+      "type": "session.task_complete",
+      "data": {
+        "summary": "Added dark mode toggle and unit tests."
+      }
+    },
+    {
+      "id": "auto-ev-21",
+      "parentId": "auto-ev-20",
+      "timestamp": "2026-10-27T08:00:02.400Z",
+      "type": "session.idle",
+      "data": {
+        "mode": "autopilot"
+      }
+    }
+  ]
+}
