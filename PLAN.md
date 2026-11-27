@@ -2580,6 +2580,12 @@ command, or arguments that cannot be shown honestly are refused rather than offe
   decisions in §0.3 when the spike proves them. Keep a feature flag during rollout; turning it off restores the current
   fail-closed behavior and should not alter ordinary permission rules or existing sandbox settings.
 
+Initial implementation status (2026-11-27): the runtime adapter preserves sandbox bypass requests and uses
+`approve-once`; the policy and card implement exact once/task scopes and persistent read-path or host exceptions; hard
+refusals still win; paths are resolved before matching/persistence; and ARIA data/credential paths are refused. The
+existing sandbox host/path lists are the first persistent store and are editable in Customize › Permissions. The more
+structured audit record, dedicated exception list, and real-runtime probes remain 10C rollout work.
+
 **Done when:** from a normal sandboxed task, a blocked read or host produces a card in the one chat; **Allow once**,
 **Allow for this task**, and **Always allow this exact access** each complete the intended scope; the task resumes when
 it should; and no choice can weaken a hard refusal, a `Never` rule, an external-write confirmation, or the sandbox for

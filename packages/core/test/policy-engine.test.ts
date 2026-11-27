@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { PolicyRule, TaskGrant } from "@aria/protocol";
 import { describe, expect, it } from "vitest";
@@ -274,7 +275,7 @@ describe("decideWorker, sandboxed (D20)", () => {
     expect(decision).toMatchObject({
       effect: "ask",
       request: {
-        sandbox: { access: "read", target: canonicalPath(path.resolve("package.json"), WT), persistent: "path" },
+        sandbox: { access: "read", target: canonicalPath(realpathSync.native(path.resolve("package.json")), WT), persistent: "path" },
       },
     });
     const grants = grantsFor(read);
@@ -289,6 +290,7 @@ describe("decideWorker, sandboxed (D20)", () => {
     const urlGrants = grantsFor(url);
     expect(effect(url, { grants: urlGrants })).toBe("auto");
     expect(effect({ ...url, url: "https://other.example.com/" }, { grants: urlGrants })).toBe("ask");
+    expect(effect(read, { protectedDirs: [path.dirname(path.resolve("package.json"))] })).toBe("never");
   });
 
   it("a sandbox block cannot bypass a Never rule or make destructive commands repeatable", () => {

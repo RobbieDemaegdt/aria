@@ -93,7 +93,7 @@ export function PermissionActions({ task, pending }: { task: Task; pending: Pend
       )}
       {pending.everyTime ? (
         <div className="text-[11px] text-warn" data-testid="permission-every-time">
-          {pending.kind === "mcp" ? "This tool changes things outside the task, so it asks every time: approve it once, or reject it." : "It's destructive, so it asks every time: approve it once, or reject it."}
+          {pending.sandbox ? "ARIA can't identify a stable resource for this sandbox block, so it asks every time: approve this exact attempt once, or reject it." : pending.kind === "mcp" ? "This tool changes things outside the task, so it asks every time: approve it once, or reject it." : "It's destructive, so it asks every time: approve it once, or reject it."}
         </div>
       ) : (
         <div className="text-[11px] text-muted">Approve for this task lets it {pending.scope} again without asking, until the task ends. You can undo that in the task's view.</div>

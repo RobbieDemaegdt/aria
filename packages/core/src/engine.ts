@@ -704,6 +704,7 @@ export class AriaEngine {
       policyRules: () => this.policyStore.rules(),
       sandboxFor: (task) => this.sandboxFor(task),
       allowedSandboxPaths: () => this.policyStore.sandbox().allowedPaths,
+      protectedSandboxPaths: () => [this.options.dataDir],
       persistSandboxException: (exception) => this.persistSandboxException(exception),
       briefTemplate: () => this.prompts.active("brief"),
       memoryFor: (repoId) => memoryBlock(briefNotes(this.db.listMemories(), repoId).shown),

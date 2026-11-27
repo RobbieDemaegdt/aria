@@ -38,13 +38,15 @@ import {
   type RuleShape,
 } from "./command.ts";
 import { destructive, destructiveTogether } from "./destructive.ts";
-import { grantablePaths } from "./sandbox.ts";
+import { grantablePaths, reachesSecrets } from "./sandbox.ts";
 
 export interface WorkerPolicyContext {
   worktree: string;
   sandboxed: boolean;
   /** The task's Copilot session folder (`~/.copilot/session-state/<sessionId>`), where plan mode stores `plan.md`. */
   sessionDir?: string;
+  /** Local roots that sandbox exceptions may never expose, such as ARIA's own data folder. */
+  protectedDirs?: readonly string[];
   /** Read-only skill, plugin, and agent directories that a task may read (`view`, `glob`, `grep`) without writing. */
   readonlyRoots?: readonly string[];
   /**
@@ -695,10 +697,14 @@ function sandboxDecision(ask: PermissionAsk, ctx: WorkerPolicyContext): PolicyDe
 
   let sandbox: SandboxPermission;
   let identity: Identity & { label: string };
+  let oneTimeOnly = false;
   switch (ask.kind) {
     case "read":
     case "write": {
-      const target = canonicalPath(path.resolve(ctx.worktree, ask.path), ctx.worktree);
+      const requested = path.resolve(ctx.worktree, ask.path);
+      const safeTarget = grantablePaths([requested], ctx.protectedDirs)[0];
+      if (!safeTarget) return never(`the sandbox cannot safely expose ${requested}: it is protected, too broad or no longer exists`);
+      const target = canonicalPath(safeTarget, ctx.worktree);
       sandbox = {
         access: ask.kind,
         target,
@@ -717,7 +723,12 @@ function sandboxDecision(ask: PermissionAsk, ctx: WorkerPolicyContext): PolicyDe
     }
     case "shell": {
       const cwd = canonicalPath(ask.cwd ?? ctx.worktree, ctx.worktree);
-      const target = `${cwd}\n${ask.command.trim()}`;
+      const candidates = ask.possiblePaths.map((p) => path.resolve(ask.cwd ?? ctx.worktree, p));
+      if (candidates.some((p) => reachesSecrets(p, ctx.protectedDirs))) return never(`the command would cross a protected path`);
+      const resolvedHints = candidates.map((p) => grantablePaths([p], ctx.protectedDirs)[0]);
+      oneTimeOnly = candidates.length === 0 || resolvedHints.some((p) => !p);
+      const resources = [...resolvedHints.filter((p): p is string => Boolean(p)).map((p) => canonicalPath(p, ctx.worktree)), ...ask.possibleUrls.map((url) => hostOf(url))];
+      const target = `${cwd}\n${ask.command.trim()}\n${resources.join("\n")}`;
       sandbox = { access: "execute", target, label: `allow ${ask.command.trim()} through the sandbox in ${cwd}` };
       identity = { key: "sandbox-shell", target, label: sandbox.label };
       break;
@@ -726,9 +737,8 @@ function sandboxDecision(ask: PermissionAsk, ctx: WorkerPolicyContext): PolicyDe
       return never(`ARIA can't safely grant this ${ask.kind} sandbox request`);
   }
 
-  const identities = ordinary.effect === "ask" && ordinary.request.everyTime
-    ? []
-    : ordinary.effect === "ask" ? [...ordinary.request.grants, identity] : [identity];
+  const everyTime = oneTimeOnly || (ordinary.effect === "ask" && ordinary.request.everyTime === true);
+  const identities = everyTime ? [] : ordinary.effect === "ask" ? [...ordinary.request.grants, identity] : [identity];
   if (identities.length > 0 && identities.every((item) => granted(ctx.grants, item))) return AUTO;
   if (ordinary.effect === "ask") {
     return {
@@ -739,7 +749,7 @@ function sandboxDecision(ask: PermissionAsk, ctx: WorkerPolicyContext): PolicyDe
         reason: `${ordinary.request.reason}; the sandbox also blocks it`,
         scope: `${ordinary.request.scope}, through the sandbox`,
         grants: identities,
-        ...(ordinary.request.everyTime ? { everyTime: true } : {}),
+        ...(everyTime ? { everyTime: true } : {}),
       },
     };
   }
@@ -751,7 +761,8 @@ function sandboxDecision(ask: PermissionAsk, ctx: WorkerPolicyContext): PolicyDe
     reason: "the runtime sandbox blocks this otherwise-allowed access",
     scope: sandbox.label,
     sandbox,
-    identities: [identity],
+    identities: everyTime ? [] : [identity],
+    ...(everyTime ? { everyTime: true } : {}),
   });
 }
 

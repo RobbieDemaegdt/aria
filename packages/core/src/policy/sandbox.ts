@@ -190,11 +190,19 @@ export function reachesSecrets(target: string, protectedDirs: readonly string[] 
 }
 
 /**
- * The paths a task may read because words named them (a brief, a message). Customize › Permissions stays your call, but
- * a path that's only mentioned, perhaps to say "leave it alone", never reaches your credentials.
+ * The real existing paths a task may read because they were granted. Resolving the target binds a grant to the checked
+ * resource; replacing a symlink changes the identity on the next request.
  */
 export function grantablePaths(paths: readonly string[], protectedDirs: readonly string[] = []): string[] {
-  return sanitizeAllowedPaths(paths).filter((p) => !reachesSecrets(p, protectedDirs));
+  return sanitizeAllowedPaths(paths)
+    .filter((p) => !reachesSecrets(p, protectedDirs))
+    .flatMap((p) => {
+      try {
+        return [realpathSync.native(p)];
+      } catch {
+        return [];
+      }
+    });
 }
 
 /** Whether these words name this path, or a folder it's in. Slashes and letter case don't count; a longer name isn't it. */
