@@ -149,6 +149,8 @@ export const CHANNELS = {
   resetPrompt: "aria:reset-prompt",
   runDoctor: "aria:run-doctor",
   setOnboardingState: "aria:set-onboarding-state",
+  installUpdate: "aria:install-update",
+  snoozeUpdate: "aria:snooze-update",
   openCliTerminal: "aria:open-cli-terminal",
   openLogsFolder: "aria:open-logs-folder",
   event: "aria:event",

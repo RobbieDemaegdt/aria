@@ -58,6 +58,10 @@ Download `ARIA-Setup-<version>.exe` from the latest release and run it. The inst
 SmartScreen shows "unknown publisher": choose More info, then Run anyway. It installs for your user only. ARIA keeps its data in
 `%APPDATA%\ARIA`, and uninstalling leaves that folder alone.
 
+After that, ARIA looks for a new release at start and every 6 hours. When there is one, a bar at the top of the window offers
+**Update now**, which downloads the installer, checks it against the checksum GitHub publishes for it and restarts ARIA into
+the new version, or **Later**, which hides the bar for a day.
+
 ## Build and run from source
 
 ```powershell

@@ -171,8 +171,10 @@ export interface OnboardingState {
   tourCompleted?: boolean;
   /** Version string of the latest "What's new" release notes the user dismissed, if any. */
   dismissedWhatsNewVersion?: string;
-  /** Version string of the latest available update popup the user dismissed, if any. */
+  /** Version string of the latest available update popup the user dismissed, if any. No longer written (D80). */
   dismissedAvailableUpdateVersion?: string;
+  /** Later on the update bar (D80): the bar stays hidden for this version until `until` (ms since the epoch). */
+  updateSnooze?: { version: string; until: number };
   updatedAt: number;
 }
 
@@ -184,8 +186,22 @@ export interface AvailableUpdateInfo {
   releaseUrl: string;
   installerUrl?: string;
   installerName?: string;
+  /** The installer's size in bytes, as GitHub's API states it for the asset. */
+  installerSize?: number;
+  /** The installer's SHA-256 (lowercase hex), from the asset's `digest`. Update now needs it (D80). */
+  installerSha256?: string;
   publishedAt?: string;
 }
+
+/**
+ * Update now (D80): where the download and the install of an available update stand. `idle` until you start one;
+ * `failed` says why, and Update now can be tried again.
+ */
+export type UpdateStatus =
+  | { phase: "idle" }
+  | { phase: "downloading"; version: string; received: number; total: number }
+  | { phase: "installing"; version: string }
+  | { phase: "failed"; version: string; reason: string };
 
 export interface ReleaseFeatureItem {
   title: string;
@@ -953,6 +969,10 @@ export interface AppState {
   releases?: ReleaseNoteEntry[];
   /** Newer release available to download from GitHub Releases, if any. */
   availableUpdate?: AvailableUpdateInfo;
+  /** Update now's progress (D80). */
+  updateStatus?: UpdateStatus;
+  /** Whether this build can install an update itself (an installed build; not a development one). */
+  canInstallUpdates?: boolean;
   /** Latest Copilot CLI & system doctor report, if run. */
   doctor?: DoctorReport;
 }
@@ -1872,6 +1892,8 @@ export type EngineEvent =
   | { type: "onboarding"; onboarding: OnboardingState }
   /** A newer release of ARIA is available to download. */
   | { type: "available_update"; availableUpdate: AvailableUpdateInfo | null }
+  /** Update now's download or install moved on (D80). */
+  | { type: "update_status"; updateStatus: UpdateStatus }
   /** System & Copilot CLI doctor report updated. */
   | { type: "doctor"; doctor: DoctorReport };
 
@@ -3180,6 +3202,13 @@ export interface AriaApi {
   // Onboarding, Copilot CLI Doctor & Release Notes
   runDoctor(): Promise<DoctorReport>;
   setOnboardingState(input: z.infer<typeof SetOnboardingStateInput>): Promise<OnboardingState>;
+  /**
+   * Update now (D80): downloads the available update's installer, checks its size and SHA-256, and restarts ARIA into
+   * it. It takes nothing: what is downloaded is the release the engine found, never something the window names.
+   */
+  installUpdate(): Promise<void>;
+  /** Later (D80): hides the update bar for the available version for a day. */
+  snoozeUpdate(): Promise<OnboardingState>;
   openCliTerminal(input: z.infer<typeof OpenCliTerminalInput>): Promise<{ launched: boolean; error?: string }>;
   openLogsFolder(): Promise<void>;
 }

@@ -19,6 +19,7 @@ vi.mock("zustand", async (importOriginal) => {
 import { Card } from "../src/renderer/src/components/Cards";
 import { Chat } from "../src/renderer/src/components/Chat";
 import { OnboardingModal, OnboardingTour, SidebarHelpFooter, WhatsNewModal } from "../src/renderer/src/components/Onboarding";
+import { UpdateBar } from "../src/renderer/src/components/UpdateBar";
 import { useAria } from "../src/renderer/src/store";
 
 const api: Partial<AriaApi> = {
@@ -236,5 +237,83 @@ describe("Onboarding, Copilot CLI Doctor, GUI Tour & What's New UI", () => {
     const footerHtml = renderToStaticMarkup(<SidebarHelpFooter />);
     expect(footerHtml).toContain('data-testid="sidebar-update-dot"');
     expect(footerHtml).toContain("v0.1.0 → v0.2.0");
+  });
+
+  describe("the update bar and What's New's Update now (D80)", () => {
+    const update = {
+      version: "0.2.0",
+      tagName: "v0.2.0",
+      releaseUrl: "https://github.com/RobbieDemaegdt/aria/releases/tag/v0.2.0",
+      installerName: "ARIA-Setup-0.2.0.exe",
+      installerUrl: "https://github.com/RobbieDemaegdt/aria/releases/download/v0.2.0/ARIA-Setup-0.2.0.exe",
+      installerSize: 1_000_000,
+      installerSha256: "b".repeat(64),
+    };
+    beforeEach(() => {
+      useAria.setState({ availableUpdate: update, canInstallUpdates: true, updateStatus: { phase: "idle" }, updateConfirming: false });
+    });
+
+    it("says an update is available, with What's new, Later and Update now", () => {
+      const html = renderToStaticMarkup(<UpdateBar />);
+      expect(html).toContain('data-testid="update-bar"');
+      expect(html).toContain('data-phase="idle"');
+      expect(html).toContain("ARIA v0.2.0</span> is available");
+      expect(html).toContain("(you have v0.1.0)");
+      expect(html).toContain('data-testid="update-bar-whats-new"');
+      expect(html).toContain('data-testid="update-bar-later"');
+      expect(html).toContain('data-testid="update-bar-update"');
+      expect(html).not.toContain('data-testid="update-bar-download"');
+    });
+
+    it("offers Download in a build that can't install, and is gone with no update or after Later", () => {
+      useAria.setState({ canInstallUpdates: false });
+      const html = renderToStaticMarkup(<UpdateBar />);
+      expect(html).toContain('data-testid="update-bar-download"');
+      expect(html).not.toContain('data-testid="update-bar-update"');
+
+      useAria.setState({ onboarding: { ...useAria.getState().onboarding, updateSnooze: { version: "0.2.0", until: Date.now() + 60_000 } } });
+      expect(renderToStaticMarkup(<UpdateBar />)).toBe("");
+      useAria.setState({ availableUpdate: null });
+      expect(renderToStaticMarkup(<UpdateBar />)).toBe("");
+    });
+
+    it("asks before a restart that stops tasks, then shows the download and the restart", () => {
+      useAria.setState({ updateConfirming: true, tasks: [{ id: "t1", state: "running" } as never, { id: "t2", state: "waiting_plan" } as never] });
+      let html = renderToStaticMarkup(<UpdateBar />);
+      expect(html).toContain('data-phase="confirming"');
+      expect(html).toContain("2 tasks are in progress. Updating restarts ARIA: they stop, and you can resume them after the restart.");
+      expect(html).toContain('data-testid="update-bar-confirm"');
+      expect(html).toContain('data-testid="update-bar-cancel"');
+
+      useAria.setState({ updateConfirming: false, updateStatus: { phase: "downloading", version: "0.2.0", received: 420_000, total: 1_000_000 } });
+      html = renderToStaticMarkup(<UpdateBar />);
+      expect(html).toContain('data-phase="downloading"');
+      expect(html).toContain("Downloading ARIA v0.2.0…");
+      expect(html).toContain("42%");
+      expect(html).toContain("width:42%");
+
+      useAria.setState({ updateStatus: { phase: "installing", version: "0.2.0" } });
+      expect(renderToStaticMarkup(<UpdateBar />)).toContain("Restarting ARIA to install v0.2.0…");
+    });
+
+    it("says why it failed, with Download instead, Later and Try again", () => {
+      useAria.setState({ updateStatus: { phase: "failed", version: "0.2.0", reason: "The download stopped before the end." } });
+      const html = renderToStaticMarkup(<UpdateBar />);
+      expect(html).toContain('data-phase="failed"');
+      expect(html).toContain("Couldn&#x27;t update to v0.2.0.");
+      expect(html).toContain("The download stopped before the end.");
+      expect(html).toContain('data-testid="update-bar-download"');
+      expect(html).toContain('data-testid="update-bar-later"');
+      expect(html).toContain('data-testid="update-bar-retry"');
+    });
+
+    it("gives What's New's banner Update now and Later", () => {
+      useAria.setState({ whatsNewModalOpen: true });
+      const html = renderToStaticMarkup(<WhatsNewModal />);
+      expect(html).toContain('data-testid="update-available-install"');
+      expect(html).toContain('data-testid="update-available-later"');
+      expect(html).toContain('data-testid="update-available-release"');
+      expect(html).not.toContain('data-testid="update-available-download"');
+    });
   });
 });

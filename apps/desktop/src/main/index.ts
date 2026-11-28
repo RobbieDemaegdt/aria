@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, powerMonitor, safeStorage, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
-import { CopilotRuntime, encodeMonoWav, ghToken, AriaEngine, ManualClock, MAX_CONFIG_BYTES, type FetchLike, type McpSecretStore, type McpServerSecrets, type PhonePushSecrets, type PhoneSecretStore, type TelegramSecretStore, type VoiceSecretStore } from "@aria/core";
+import { CopilotRuntime, encodeMonoWav, ghToken, AriaEngine, ManualClock, MAX_CONFIG_BYTES, type FetchLike, type McpSecretStore, type McpServerSecrets, type PhonePushSecrets, type PhoneSecretStore, type TelegramSecretStore, type UpdateInstaller, type VoiceSecretStore } from "@aria/core";
 import {
   AcceptOfferInput,
   AddMarketplaceInput,
@@ -116,6 +116,7 @@ import {
   type TrackerImportResult,
 } from "@aria/protocol";
 import { fakeRuntime } from "./fake-runtime.ts";
+import { fakeUpdateFetch } from "./fake-update.ts";
 import { chromiumFetch } from "./github-fetch.ts";
 import { githubOptions, isTestRun } from "./github-options.ts";
 import { allowsPermission, dropDevSwitches } from "./hardening.ts";
@@ -157,6 +158,8 @@ function selfRepo(): string[] {
 const devBuild = !app.isPackaged;
 // ARIA_FAKE_RUNTIME: a scripted runtime for UI tests and demos (no model calls); never set in normal use.
 const fakeScenario = devBuild ? process.env.ARIA_FAKE_RUNTIME : undefined;
+// ARIA_FAKE_UPDATE=<version>[:bad-checksum]: a made-up release for UI tests and demos (fake-update.ts).
+const fakeUpdate = devBuild ? process.env.ARIA_FAKE_UPDATE?.trim() : undefined;
 
 /**
  * ARIA_E2E_HOOKS=1 (the UI tests): toasts are recorded instead of shown, the attention engine's clock moves only when
@@ -191,6 +194,8 @@ interface E2EHooks {
   quickPromptHotkeyRegistered?: boolean;
   fakeTranscript?: string;
   runtime?: unknown;
+  /** The installer Update now would have started (ARIA_FAKE_UPDATE): never started under the hooks. */
+  updateInstaller?: string;
   clickToast(id: string): void;
   openQuickPrompt(): void;
 }
@@ -330,6 +335,62 @@ const telegramSecretStore: TelegramSecretStore = {
   setBotToken: (token) => telegramToken.write(token?.trim() || null),
 };
 
+/**
+ * Update now (D80): the installer to start once ARIA has stopped (before-quit, below). Set when the engine has
+ * downloaded and checked it.
+ */
+let installerOnQuit: string | undefined;
+
+/**
+ * Silently, into the folder ARIA is installed in (the installer finds it in the registry: a per-user install, no UAC
+ * prompt), and ARIA starts again when it's done. %APPDATA%\ARIA isn't touched.
+ */
+function startInstaller(file: string): void {
+  try {
+    const child = spawn(file, ["--updated", "/S", "--force-run"], { detached: true, stdio: "ignore" });
+    child.on("error", (error) => console.error(`ARIA couldn't start the update's installer: ${error.message}`));
+    child.unref();
+  } catch (error) {
+    console.error(`ARIA couldn't start the update's installer: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * The check for updates and Update now: GitHub's real release in a normal run, and Update now only in an installed
+ * build (a development one has no installed ARIA to update). No check at all in a test run, unless it asks for the
+ * made-up release (ARIA_FAKE_UPDATE), whose installer is only recorded.
+ */
+function updateOptions(): { updateCheckFetch?: FetchLike; updateInstaller?: UpdateInstaller } {
+  if (fakeUpdate) {
+    const [version = "99.0.0", mode] = fakeUpdate.split(":");
+    const fetch = fakeUpdateFetch(version, mode);
+    return {
+      updateCheckFetch: fetch,
+      updateInstaller: {
+        fetch,
+        dir: path.join(app.getPath("userData"), "update-downloads"),
+        launch: (file) => {
+          if (hooks) hooks.updateInstaller = file;
+          console.log(`ARIA_FAKE_UPDATE: Update now would start ${file}`);
+        },
+      },
+    };
+  }
+  if (testRun) return {};
+  if (!app.isPackaged) return { updateCheckFetch: githubFetch };
+  return {
+    updateCheckFetch: githubFetch,
+    updateInstaller: {
+      fetch: githubFetch,
+      dir: path.join(app.getPath("temp"), "ARIA-update"),
+      launch: (file) => {
+        installerOnQuit = file;
+        app.quit();
+      },
+    },
+  };
+}
+
 const activeRuntime = fakeScenario ? fakeRuntime(fakeScenario) : new CopilotRuntime();
 if (hooks) hooks.runtime = activeRuntime;
 
@@ -339,7 +400,7 @@ engine = new AriaEngine({
   appVersion: (devBuild && process.env.ARIA_APP_VERSION) || app.getVersion(),
   ...(hooks ? { attentionClock: hooks.clock } : {}),
   ...(github ? { github } : {}),
-  ...(!testRun ? { updateCheckFetch: githubFetch } : {}),
+  ...updateOptions(),
   // The scripted runtime's spec moves the clock itself: no jitter, so intervals are exact.
   ...(fakeScenario ? { watchJitter: 0 } : {}),
   // ARIA_FAKE_TRACKER=<config id>: with the scripted runtime only, stands in for a missing tracker setting.
@@ -1005,6 +1066,8 @@ function registerIpc(): void {
 
   handle(CHANNELS.runDoctor, () => engine.runDoctor());
   handle(CHANNELS.setOnboardingState, (_e, arg) => engine.setOnboardingState(SetOnboardingStateInput.parse(arg ?? {})));
+  handle(CHANNELS.installUpdate, () => engine.installUpdate());
+  handle(CHANNELS.snoozeUpdate, () => engine.snoozeUpdate());
   handle(CHANNELS.openCliTerminal, (_e, arg) => {
     const { target } = OpenCliTerminalInput.parse(arg);
     if (hooks) {
@@ -1105,6 +1168,8 @@ app.on("before-quit", (event) => {
   void engine.stop().finally(() => {
     tray?.destroy();
     tray = null;
+    // Update now: the installer starts once the tasks and the runtime have stopped, so it finds ARIA gone (D80).
+    if (installerOnQuit) startInstaller(installerOnQuit);
     app.quit();
   });
 });

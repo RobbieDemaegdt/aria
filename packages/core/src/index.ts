@@ -358,6 +358,8 @@ export {
   DEFAULT_APP_VERSION,
   ARIA_GITHUB_REPO,
   ARIA_LATEST_RELEASE_URL,
+  installerNameFor,
+  installerUrlFor,
   parseLatestGitHubRelease,
   parseSemver,
   RELEASES,
@@ -365,4 +367,15 @@ export {
   resolveOnboardingStartup,
   type OnboardingStartupResolution,
 } from "./releases/releases.ts";
+export {
+  DOWNLOAD_HOSTS,
+  DownloadError,
+  downloadInstaller,
+  installProblem,
+  isInstallable,
+  MAX_INSTALLER_BYTES,
+  MAX_REDIRECTS,
+  type InstallableUpdate,
+} from "./releases/download.ts";
+export { AppUpdates, UPDATE_CHECK_INTERVAL_MS, UPDATE_SNOOZE_MS, type UpdateInstaller } from "./releases/updates.ts";
 

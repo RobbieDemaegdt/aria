@@ -12,6 +12,7 @@ import { SearchView } from "./components/SearchView";
 import { SessionView } from "./components/SessionView";
 import { Sidebar } from "./components/Sidebar";
 import { TimeView } from "./components/TimeView";
+import { UpdateBar } from "./components/UpdateBar";
 import { sidebarPanel, toggleSidebar } from "./sidebar";
 import { useAria } from "./store";
 
@@ -143,52 +144,55 @@ export function App() {
 
   return (
     <>
-      <Group orientation="horizontal" className="h-full">
-        <Panel
-          id="sidebar"
-          panelRef={sidebarPanel}
-          defaultSize={260}
-          minSize={180}
-          maxSize={440}
-          collapsible
-          collapsedSize={0}
-          onResize={() => setSidebarCollapsed(sidebarPanel.current?.isCollapsed() ?? false)}
-        >
-          <Sidebar />
-        </Panel>
-        <Separator className="w-px bg-line transition-colors hover:bg-accent data-[resize-handle-active]:bg-accent" />
-        {!(sessionOpen && sessionFull) && (
-          <Panel id="main" minSize={380}>
-            <ViewErrorBoundary
-              resetKey={view}
-              {...(view !== "chat" ? { onBack: () => useAria.getState().setView("chat") } : {})}
-            >
-              {view === "customize" ? (
-                <Customize />
-              ) : view === "time" ? (
-                <TimeView />
-              ) : view === "search" ? (
-                <SearchView />
-              ) : view === "automations" ? (
-                <AutomationsView />
-              ) : (
-                <Chat />
-              )}
-            </ViewErrorBoundary>
+      <div className="flex h-full flex-col">
+        <UpdateBar />
+        <Group orientation="horizontal" className="min-h-0 flex-1">
+          <Panel
+            id="sidebar"
+            panelRef={sidebarPanel}
+            defaultSize={260}
+            minSize={180}
+            maxSize={440}
+            collapsible
+            collapsedSize={0}
+            onResize={() => setSidebarCollapsed(sidebarPanel.current?.isCollapsed() ?? false)}
+          >
+            <Sidebar />
           </Panel>
-        )}
-        {sessionOpen && !sessionFull && <Separator className="w-px bg-line transition-colors hover:bg-accent data-[resize-handle-active]:bg-accent" />}
-        {sessionOpen && (
-          <Panel id="session" defaultSize={560} minSize={380}>
-            <ViewErrorBoundary
-              resetKey={`${inspecting}:${myWorkOpen}:${openTaskId ?? ""}`}
-              onBack={() => useAria.getState().closeTask()}
-            >
-              {inspecting ? <Inspector /> : myWorkOpen ? <MyWork /> : <SessionView />}
-            </ViewErrorBoundary>
-          </Panel>
-        )}
-      </Group>
+          <Separator className="w-px bg-line transition-colors hover:bg-accent data-[resize-handle-active]:bg-accent" />
+          {!(sessionOpen && sessionFull) && (
+            <Panel id="main" minSize={380}>
+              <ViewErrorBoundary
+                resetKey={view}
+                {...(view !== "chat" ? { onBack: () => useAria.getState().setView("chat") } : {})}
+              >
+                {view === "customize" ? (
+                  <Customize />
+                ) : view === "time" ? (
+                  <TimeView />
+                ) : view === "search" ? (
+                  <SearchView />
+                ) : view === "automations" ? (
+                  <AutomationsView />
+                ) : (
+                  <Chat />
+                )}
+              </ViewErrorBoundary>
+            </Panel>
+          )}
+          {sessionOpen && !sessionFull && <Separator className="w-px bg-line transition-colors hover:bg-accent data-[resize-handle-active]:bg-accent" />}
+          {sessionOpen && (
+            <Panel id="session" defaultSize={560} minSize={380}>
+              <ViewErrorBoundary
+                resetKey={`${inspecting}:${myWorkOpen}:${openTaskId ?? ""}`}
+                onBack={() => useAria.getState().closeTask()}
+              >
+                {inspecting ? <Inspector /> : myWorkOpen ? <MyWork /> : <SessionView />}
+              </ViewErrorBoundary>
+            </Panel>
+          )}
+        </Group>
+      </div>
       <NewSessionDialog />
       <QuickPromptBar />
       <OnboardingModal />
