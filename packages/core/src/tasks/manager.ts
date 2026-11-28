@@ -2421,6 +2421,19 @@ export class TaskManager {
     this.interruptWorking("runtime");
   }
 
+  /**
+   * The tasks a restart would stop, and those waiting in the queue to start (Update when they're done waits for
+   * them, D80). A cloud task with its session keeps going without ARIA, as at a restart.
+   */
+  busyCount(): number {
+    let count = 0;
+    for (const record of this.deps.db().listTasks()) {
+      if (record.where === "cloud" && record.sessionId) continue;
+      if (ACTIVE.has(record.state) || record.state === "queued") count++;
+    }
+    return count;
+  }
+
   private interruptWorking(cause?: "runtime"): void {
     const interrupted: string[] = [];
     for (const record of this.deps.db().listTasks()) {

@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { openPage } from "../openPage";
-import { useHasTracker, useAria, useTracker } from "../store";
+import { canUpdateNow, useHasTracker, useAria, useTracker } from "../store";
 import { trackerLabel, trackerServerHint } from "../tracker";
 import { Button, Shell } from "./CardParts";
 
@@ -1126,8 +1126,9 @@ export function WhatsNewCardView({ card }: { card: Extract<CardItem, { cardType:
 }
 
 /**
- * Full Release Notes & Update Available modal opened automatically on startup when an update is available
- * or was recently installed, or manually from the Sidebar footer ("What's new") or `/whats-new` slash command.
+ * Full Release Notes & Update Available modal, opened automatically on startup after an update was installed, or
+ * from the update bar and the Sidebar footer ("What's new") or the `/whats-new` slash command. An available update
+ * is the update bar's to announce (D80); here it has the same Update now and Later.
  */
 export function WhatsNewModal() {
   const open = useAria((s) => s.whatsNewModalOpen);
@@ -1136,6 +1137,10 @@ export function WhatsNewModal() {
   const appVersion = useAria((s) => s.appVersion);
   const availableUpdate = useAria((s) => s.availableUpdate);
   const startTour = useAria((s) => s.startTour);
+  const installable = useAria(canUpdateNow);
+  const updating = useAria((s) => s.updateStatus.phase === "downloading" || s.updateStatus.phase === "waiting" || s.updateStatus.phase === "installing");
+  const requestUpdate = useAria((s) => s.requestUpdate);
+  const snoozeUpdate = useAria((s) => s.snoozeUpdate);
 
   if (!open) return null;
 
@@ -1195,15 +1200,24 @@ export function WhatsNewModal() {
                   )}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                  <Button
-                    testId="update-available-download"
-                    primary
-                    onClick={() => openPage(availableUpdate.installerUrl ?? availableUpdate.releaseUrl)}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    {availableUpdate.installerName
-                      ? `Download ${availableUpdate.installerName}`
-                      : `Download v${availableUpdate.version}`}
+                  {installable ? (
+                    <Button testId="update-available-install" primary disabled={updating} onClick={requestUpdate}>
+                      <Download className="h-3.5 w-3.5" /> Update now
+                    </Button>
+                  ) : (
+                    <Button
+                      testId="update-available-download"
+                      primary
+                      onClick={() => openPage(availableUpdate.installerUrl ?? availableUpdate.releaseUrl)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      {availableUpdate.installerName
+                        ? `Download ${availableUpdate.installerName}`
+                        : `Download v${availableUpdate.version}`}
+                    </Button>
+                  )}
+                  <Button testId="update-available-later" disabled={updating} onClick={() => void snoozeUpdate()}>
+                    Later
                   </Button>
                   <Button
                     testId="update-available-release"

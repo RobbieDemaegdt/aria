@@ -67,7 +67,9 @@ import type {
   TranscriptEntry,
   TranscriptPage,
   UiState,
+  UpdateCheckResult,
   UpdateRegisteredEntryInput,
+  UpdateStatus,
   UpdateTimesheetEntryInput,
   UtilitySettings,
   DeleteRegisteredEntriesInput,
@@ -78,6 +80,7 @@ import type { z } from "zod";
 import { create } from "zustand";
 import { speakAnnouncement } from "./voice";
 import { watchTarget } from "./rows";
+import { isActive } from "./components/tasks";
 
 export type SessionTab = "transcript" | "plan" | "diff";
 
@@ -268,6 +271,12 @@ interface AriaStore {
   releases: ReleaseNoteEntry[];
   /** Newer release available to download from GitHub Releases, if any. */
   availableUpdate: AvailableUpdateInfo | null;
+  /** Update now's progress (D80). */
+  updateStatus: UpdateStatus;
+  /** Whether this build can install an update itself (an installed build). */
+  canInstallUpdates: boolean;
+  /** The update bar asks whether to restart (tasks are in progress, or the tray's Update to v… asked for it). */
+  updateConfirming: boolean;
   /** Latest Copilot CLI & system doctor report. */
   doctor: DoctorReport | null;
   doctorLoading: boolean;
@@ -552,6 +561,22 @@ interface AriaStore {
   closeOnboardingModal(): void;
   openWhatsNewModal(): void;
   closeWhatsNewModal(): void;
+  /** Update now (D80): asks first when tasks are in progress (updating restarts ARIA), else starts the download. */
+  requestUpdate(): void;
+  /** The tray's Update to v…: the update bar asks, whatever Later said. */
+  promptUpdate(): void;
+  /**
+   * Update now, after the question (or without one): the engine downloads, checks and installs. `whenIdle`: Update
+   * when they're done. While an update waits for the tasks, a call without it restarts at once.
+   */
+  confirmUpdate(options?: { whenIdle?: boolean }): Promise<void>;
+  cancelUpdateConfirm(): void;
+  /** Cancel on an update that waits for the tasks. */
+  cancelUpdate(): Promise<void>;
+  /** Later (D80): the update bar goes for a day. */
+  snoozeUpdate(): Promise<void>;
+  /** Check now (D80): what GitHub says, or null when the call itself failed (actionError says why). */
+  checkForUpdates(): Promise<UpdateCheckResult | null>;
   startTour(step?: number): void;
   nextTourStep(totalSteps?: number): void;
   prevTourStep(): void;
@@ -623,21 +648,17 @@ function compareVersion(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * Whether What's New opens by itself at start: after ARIA was updated, until you've seen its notes. An update that's
+ * available doesn't open it: the update bar says so (D80).
+ */
 export function hasStartupUpdateToNotify(state: {
   appVersion?: string;
   onboarding?: OnboardingState;
-  availableUpdate?: AvailableUpdateInfo | null;
   timeline?: readonly TimelineItem[];
 }): boolean {
   const current = state.appVersion ?? "0.1.0";
   const onboarding = state.onboarding;
-  if (
-    state.availableUpdate &&
-    compareVersion(state.availableUpdate.version, current) > 0 &&
-    onboarding?.dismissedAvailableUpdateVersion !== state.availableUpdate.version
-  ) {
-    return true;
-  }
   if (
     onboarding?.dismissedWhatsNewVersion &&
     compareVersion(current, onboarding.dismissedWhatsNewVersion) > 0
@@ -654,6 +675,37 @@ export function hasStartupUpdateToNotify(state: {
   }
   return false;
 }
+
+/**
+ * The update bar (D80): an update is available and you haven't picked Later for it, or it asks whether to restart
+ * (Update now from the modal or the tray), or Update now is on its way, waits for the tasks, or failed. `now`: ms
+ * since the epoch.
+ */
+export function updateBarShown(
+  state: Pick<AriaStore, "availableUpdate" | "appVersion" | "onboarding" | "updateStatus"> & Partial<Pick<AriaStore, "updateConfirming">>,
+  now: number,
+): boolean {
+  const update = state.availableUpdate;
+  if (!update || compareVersion(update.version, state.appVersion) <= 0) return false;
+  if (state.updateConfirming) return true;
+  if (state.updateStatus.phase !== "idle" && state.updateStatus.version === update.version) return true;
+  const snooze = state.onboarding.updateSnooze;
+  return !(snooze && snooze.version === update.version && now < snooze.until);
+}
+
+/**
+ * Update now installs in the app: an installed build, and a release whose installer GitHub states the size and
+ * checksum of. Otherwise the bar offers Download (the browser).
+ */
+export function canUpdateNow(state: Pick<AriaStore, "availableUpdate" | "canInstallUpdates">): boolean {
+  const update = state.availableUpdate;
+  return Boolean(
+    state.canInstallUpdates && update?.installerUrl && update.installerName && update.installerSize && update.installerSha256,
+  );
+}
+
+/** The tasks an update's restart stops (they can be resumed after it). */
+export const tasksStoppedByRestart = (tasks: readonly Task[]): number => tasks.filter(isActive).length;
 
 const NO_AGENTS: NonNullable<IntegrationsState["agents"]> = [];
 /** Your agents. Always the same list when there are none (no check yet): a new one each time would re-render forever. */
@@ -750,6 +802,9 @@ export const useAria = create<AriaStore>((set, get) => {
     onboarding: { lastSeenVersion: "0.1.0", dismissedWhatsNewVersion: "0.1.0", setupCompleted: false, tourCompleted: false, updatedAt: 0 },
     releases: [],
     availableUpdate: null,
+    updateStatus: { phase: "idle" },
+    canInstallUpdates: false,
+    updateConfirming: false,
     doctor: null,
     doctorLoading: false,
     onboardingModalOpen: false,
@@ -801,6 +856,8 @@ export const useAria = create<AriaStore>((set, get) => {
       set({
         ...state,
         availableUpdate: state.availableUpdate ?? null,
+        updateStatus: state.updateStatus ?? { phase: "idle" },
+        canInstallUpdates: state.canInstallUpdates ?? false,
         loaded: true,
         ...(autoOpenUpdatePopup ? { whatsNewModalOpen: true } : {}),
       });
@@ -974,25 +1031,21 @@ export const useAria = create<AriaStore>((set, get) => {
         case "onboarding":
           set({ onboarding: event.onboarding });
           break;
-        case "available_update": {
-          const nextUpdate = event.availableUpdate;
-          const shouldPopup =
-            nextUpdate !== null &&
-            compareVersion(nextUpdate.version, get().appVersion) > 0 &&
-            get().onboarding.dismissedAvailableUpdateVersion !== nextUpdate.version &&
-            !get().tourActive &&
-            !get().onboardingModalOpen;
-          set({
-            availableUpdate: nextUpdate,
-            ...(shouldPopup ? { whatsNewModalOpen: true } : {}),
-          });
+        case "available_update":
+          // The update bar shows it (D80); What's New no longer opens by itself for it.
+          set({ availableUpdate: event.availableUpdate });
           break;
-        }
+        case "update_status":
+          set({ updateStatus: event.updateStatus });
+          break;
         case "doctor":
           set({ doctor: event.doctor, doctorLoading: false });
           break;
         case "quick_prompt":
           get().openQuickPrompt();
+          break;
+        case "update_prompt":
+          get().promptUpdate();
           break;
         case "speak":
           void speakAnnouncement(event, get().attention);
@@ -2026,22 +2079,44 @@ export const useAria = create<AriaStore>((set, get) => {
 
     closeWhatsNewModal() {
       const currentVersion = get().appVersion;
-      const availableVersion = get().availableUpdate?.version;
-      const onboarding = get().onboarding;
       set({ whatsNewModalOpen: false });
-      const patch: {
-        dismissedWhatsNewVersion?: string;
-        dismissedAvailableUpdateVersion?: string;
-      } = {};
-      if (onboarding.dismissedWhatsNewVersion !== currentVersion) {
-        patch.dismissedWhatsNewVersion = currentVersion;
+      // This version's notes are seen. An available update isn't put off by this: Later on the bar does that.
+      if (get().onboarding.dismissedWhatsNewVersion !== currentVersion) {
+        void get().setOnboardingState({ dismissedWhatsNewVersion: currentVersion });
       }
-      if (availableVersion && onboarding.dismissedAvailableUpdateVersion !== availableVersion) {
-        patch.dismissedAvailableUpdateVersion = availableVersion;
-      }
-      if (Object.keys(patch).length > 0) {
-        void get().setOnboardingState(patch);
-      }
+    },
+
+    requestUpdate() {
+      set({ whatsNewModalOpen: false });
+      if (tasksStoppedByRestart(get().tasks) > 0) set({ updateConfirming: true });
+      else void get().confirmUpdate();
+    },
+
+    promptUpdate() {
+      set({ whatsNewModalOpen: false, updateConfirming: true });
+    },
+
+    async confirmUpdate(options) {
+      set({ updateConfirming: false });
+      await ok(() => window.aria.installUpdate(options?.whenIdle ? { whenIdle: true } : {}));
+    },
+
+    cancelUpdateConfirm() {
+      set({ updateConfirming: false });
+    },
+
+    async cancelUpdate() {
+      await ok(() => window.aria.cancelUpdate());
+    },
+
+    async checkForUpdates() {
+      return attempt(() => window.aria.checkForUpdates(), null);
+    },
+
+    async snoozeUpdate() {
+      set({ updateConfirming: false, whatsNewModalOpen: false });
+      const next = await attempt(() => window.aria.snoozeUpdate(), null);
+      if (next) set({ onboarding: next });
     },
 
     startTour(step = 0) {

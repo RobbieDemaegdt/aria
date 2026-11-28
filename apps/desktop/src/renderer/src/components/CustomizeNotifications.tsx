@@ -1,4 +1,4 @@
-import type { OutlookMailTriageMode, PhonePushProvider, PhonePushScope, SpokenAnnouncementsScope, SttProvider, TtsProvider } from "@aria/protocol";
+import type { OutlookMailTriageMode, PhonePushProvider, PhonePushScope, SpokenAnnouncementsScope, SttProvider, TtsProvider, UpdateCheckResult } from "@aria/protocol";
 import { useEffect, useState } from "react";
 import { accessText, canRetry, inboxLine } from "../github";
 import { useAria } from "../store";
@@ -1047,6 +1047,66 @@ function OutlookSection({ onSaved }: { onSaved: (msg: string) => void }) {
  * Customize › Notifications (PLAN.md §4.5, §5.5, D25): Focus mode, and when the "while you were away" card shows.
  * Toasts only ever come while you're away from ARIA.
  */
+/** What Check now found, in a line. */
+function checkResultText(result: UpdateCheckResult): string {
+  if (result.status === "available") return `ARIA v${result.update.version} is available: the bar at the top of the window has it.`;
+  if (result.status === "latest") return "You have the latest version.";
+  return `Couldn't check. ${result.reason}`;
+}
+
+/** Updates (D80): whether ARIA checks for a newer release by itself, and Check now. */
+function UpdatesSection({ onSaved }: { onSaved: (msg: string) => void }) {
+  const auto = useAria((s) => s.attention.autoUpdateCheck !== false);
+  const appVersion = useAria((s) => s.appVersion);
+  const setAttention = useAria((s) => s.setAttention);
+  const checkForUpdates = useAria((s) => s.checkForUpdates);
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<UpdateCheckResult | null>(null);
+  const toggle = async (on: boolean) => {
+    if (await setAttention({ autoUpdateCheck: on })) {
+      onSaved(on ? "ARIA checks for updates by itself." : "ARIA checks for updates only when you press Check now.");
+    }
+  };
+  const check = async () => {
+    setChecking(true);
+    setResult(null);
+    try {
+      setResult(await checkForUpdates());
+    } finally {
+      setChecking(false);
+    }
+  };
+  return (
+    <section className="space-y-1.5" data-testid="updates-section">
+      <div className="font-medium">Updates</div>
+      <label className="flex items-center gap-2 font-medium">
+        <input type="checkbox" data-testid="update-auto-check" checked={auto} onChange={(e) => void toggle(e.target.checked)} />
+        Check for ARIA updates automatically
+      </label>
+      <p className="text-xs text-muted">
+        ARIA reads its latest release on GitHub, without signing in, when it starts, every 6 hours and after the PC wakes. A newer one shows in a bar at the top of the window and in the tray menu. Off: only when you press Check now.
+      </p>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <button
+          type="button"
+          data-testid="update-check-now"
+          disabled={checking}
+          onClick={() => void check()}
+          className="rounded border border-line px-2 py-1 text-fg hover:border-accent disabled:opacity-40"
+        >
+          {checking ? "Checking…" : "Check now"}
+        </button>
+        <span className="text-muted">You have ARIA v{appVersion}.</span>
+        {result && (
+          <span data-testid="update-check-result" data-status={result.status} className={result.status === "failed" ? "text-bad" : result.status === "available" ? "text-warn" : "text-ok"}>
+            {checkResultText(result)}
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function CustomizeNotifications() {
   const attention = useAria((s) => s.attention);
   const setAttention = useAria((s) => s.setAttention);
@@ -1176,6 +1236,7 @@ export function CustomizeNotifications() {
             Opens the Spotlight-style quick prompt bar from anywhere without conflicting with editor completion like Visual Studio IntelliSense (<kbd className="font-mono">Ctrl+Space</kbd> still works while ARIA is focused).
           </p>
         </section>
+        <UpdatesSection onSaved={(msg) => setSaved(msg)} />
         <section className="space-y-1 text-xs text-muted">
           <div className="font-medium text-fg">Toasts</div>
           <p>

@@ -80,6 +80,7 @@ import type {
   TranscriptPage,
   TranscriptPageInput,
   UiState,
+  UpdateCheckResult,
   UtilitySettings,
   Watch,
   YourWords,
@@ -186,13 +187,8 @@ import { resolveWorktreeRoot } from "./tasks/worktrees.ts";
 import { FileLogger, parseLogLevel, type Logger } from "./util/logger.ts";
 import { redactText } from "./util/redact.ts";
 import { runDoctor } from "./doctor/doctor.ts";
-import {
-  DEFAULT_APP_VERSION,
-  ARIA_LATEST_RELEASE_URL,
-  parseLatestGitHubRelease,
-  RELEASES,
-  resolveOnboardingStartup,
-} from "./releases/releases.ts";
+import { DEFAULT_APP_VERSION, RELEASES, resolveOnboardingStartup } from "./releases/releases.ts";
+import { AppUpdates, UPDATE_SNOOZE_MS } from "./releases/updates.ts";
 import type { EngineOptions } from "./engine-options.ts";
 import { ignoreCleanupFailure, onlyWaitedFor } from "./util/ignore.ts";
 
@@ -387,9 +383,22 @@ export class AriaEngine {
   private readonly plugins: Plugins;
   /** GitHub (who ARIA reads it as) and the watchers (PLAN.md §4.6). */
   private readonly github: GitHub;
+  /** ARIA's own updates: the check for a newer release, and Update now (D80). */
+  private readonly updates: AppUpdates;
 
   constructor(options: EngineOptions) {
     this.options = options;
+    this.updates = new AppUpdates({
+      appVersion: this.appVersion(),
+      clock: options.attentionClock ?? realClock,
+      ...(options.updateCheckFetch ? { checkFetch: options.updateCheckFetch } : {}),
+      ...(options.updateInstaller ? { installer: options.updateInstaller } : {}),
+      ...(options.watchJitter !== undefined ? { jitter: options.watchJitter } : {}),
+      autoCheck: () => this.attentionSettings().autoUpdateCheck !== false,
+      busyTasks: () => this.taskManager?.busyCount() ?? 0,
+      emit: (event) => this.emit(event),
+      logFailure: (step) => this.logFailure(step),
+    });
     // None until `start()` chooses one, so nothing reads an unset tracker.
     this.tracker = options.tracker ?? NO_TRACKER;
     this.activeTracker = isNoTracker(this.tracker) ? noneActive() : builtInActive(this.tracker);
@@ -561,6 +570,8 @@ export class AriaEngine {
 
   private emit(event: EngineEvent): void {
     this.emitter.emit("event", event);
+    // Update when they're done (D80) waits for the tasks.
+    if (event.type === "task" || event.type === "task_removed") this.updates.tasksChanged();
   }
 
   private setStatus(status: ConductorStatus): void {
@@ -839,9 +850,8 @@ export class AriaEngine {
     });
     this.scheduler.seedBuiltins();
     this.reconcileOnboardingAndReleases();
-    if (this.options.updateCheckFetch) {
-      void this.checkForAppUpdate().catch(this.logFailure("Checking for ARIA updates"));
-    }
+    // At start, then every 6 hours (D80).
+    this.updates.start();
     // GitHub's watchers don't need the Copilot runtime: they start now, and resume what was watched (§4.10).
     this.github.startWatchers();
     await this.connectRuntime();
@@ -1037,6 +1047,7 @@ export class AriaEngine {
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    this.updates.stop();
     this.wakeStatusWaiters();
     this.runtimeReady = false;
     this.unwatchRuntime();
@@ -1702,7 +1713,9 @@ export class AriaEngine {
       appVersion: this.appVersion(),
       onboarding: this.onboardingState(),
       releases: [...this.releases()],
-      ...(this.availableUpdateInfo ? { availableUpdate: this.availableUpdateInfo } : {}),
+      ...(this.updates.availableUpdate() ? { availableUpdate: this.updates.availableUpdate() } : {}),
+      updateStatus: this.updates.updateStatus(),
+      canInstallUpdates: this.updates.canInstall,
       ...(this.latestDoctorReport ? { doctor: this.latestDoctorReport } : {}),
     };
   }
@@ -1794,6 +1807,7 @@ export class AriaEngine {
   systemResumed(): void {
     if (this.stopped) return;
     this.watchers?.wake();
+    this.updates.wake();
     this.trackerWatcher?.wake();
     this.outlookWatcher?.wake();
     this.scheduler?.wake();
@@ -1860,6 +1874,7 @@ export class AriaEngine {
     this.db.setSetting("attention.settings", toStore);
     const settings = this.attentionSettings();
     this.emit({ type: "attention", settings });
+    if (cleanPatch.autoUpdateCheck !== undefined) this.updates.autoCheckChanged();
     if (this.runtimeReady && !this.stopped) {
       this.telegram.sync();
     }
@@ -3771,8 +3786,6 @@ export class AriaEngine {
 
   // ── Onboarding, Copilot CLI Doctor & Release Notes ───────────────────────────────────────────────────────────
 
-  private availableUpdateInfo: AvailableUpdateInfo | undefined;
-
   appVersion(): string {
     return this.options.appVersion?.trim() || DEFAULT_APP_VERSION;
   }
@@ -3782,30 +3795,40 @@ export class AriaEngine {
   }
 
   availableUpdate(): AvailableUpdateInfo | undefined {
-    return this.availableUpdateInfo;
+    return this.updates.availableUpdate();
   }
 
-  async checkForAppUpdate(): Promise<AvailableUpdateInfo | null> {
-    const fetchFn = this.options.updateCheckFetch;
-    if (!fetchFn || this.stopped) return null;
-    const response = await fetchFn(ARIA_LATEST_RELEASE_URL, {
-      method: "GET",
-      headers: {
-        accept: "application/vnd.github+json",
-        "user-agent": "ARIA",
-      },
-      cache: "no-store",
-      credentials: "omit",
-    });
-    if (!response.ok || this.stopped) return null;
-    const raw = (await response.json()) as unknown;
-    if (this.stopped) return null;
-    const found = parseLatestGitHubRelease(raw, this.appVersion());
-    this.availableUpdateInfo = found ?? undefined;
-    if (found) {
-      this.emit({ type: "available_update", availableUpdate: found });
+  /**
+   * Check now (D80): reads GitHub's latest release (it also runs at start and every 6 hours, unless that's turned
+   * off). You asked, so Later doesn't hide an update it finds.
+   */
+  async checkForAppUpdate(): Promise<UpdateCheckResult> {
+    const result = await this.updates.checkNow();
+    if (result.status === "available" && this.store && this.onboardingState().updateSnooze) {
+      this.setOnboardingState({ updateSnooze: null });
     }
-    return found;
+    return result;
+  }
+
+  /**
+   * Update now (D80): the download starts, and its progress comes as `update_status`. `whenIdle`: Update when
+   * they're done, the installer starts once no task is in progress.
+   */
+  installUpdate(options: { whenIdle?: boolean } = {}): void {
+    this.updates.install(options);
+  }
+
+  /** Cancel on an update that waits for the tasks (D80). */
+  cancelUpdate(): void {
+    this.updates.cancel();
+  }
+
+  /** Later (D80): the update bar stays hidden for the available version for a day. */
+  snoozeUpdate(): OnboardingState {
+    const update = this.updates.availableUpdate();
+    if (!update) return this.onboardingState();
+    const until = (this.options.attentionClock ?? realClock).now() + UPDATE_SNOOZE_MS;
+    return this.setOnboardingState({ updateSnooze: { version: update.version, until } });
   }
 
   logDir(): string {
@@ -3840,6 +3863,8 @@ export class AriaEngine {
     lastSeenVersion?: string;
     dismissedWhatsNewVersion?: string;
     dismissedAvailableUpdateVersion?: string;
+    /** null: Later is over (Check now found the update). */
+    updateSnooze?: { version: string; until: number } | null;
   }): OnboardingState {
     const current = this.onboardingState();
     const now = (this.options.attentionClock ?? realClock).now();
@@ -3854,8 +3879,10 @@ export class AriaEngine {
       ...(patch.dismissedAvailableUpdateVersion !== undefined
         ? { dismissedAvailableUpdateVersion: patch.dismissedAvailableUpdateVersion }
         : {}),
+      ...(patch.updateSnooze ? { updateSnooze: { ...patch.updateSnooze } } : {}),
       updatedAt: now,
     };
+    if (patch.updateSnooze === null) delete next.updateSnooze;
     this.db.setSetting("onboarding.state", next);
     this.emit({ type: "onboarding", onboarding: next });
     return next;

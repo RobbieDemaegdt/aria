@@ -168,9 +168,20 @@ export function resolveOnboardingStartup(
   };
 }
 
+/** The installer the release workflow publishes for a version (electron-builder.yml's `artifactName`). */
+export const installerNameFor = (version: string): string => `ARIA-Setup-${version}.exe`;
+
+/** GitHub's download link for a release asset: the only installer link ARIA takes (D80). */
+export const installerUrlFor = (tagName: string, name: string, repo = ARIA_GITHUB_REPO): string =>
+  `https://github.com/${repo}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(name)}`;
+
+const SHA256_DIGEST = /^sha256:([0-9a-f]{64})$/i;
+
 /**
  * Parses a GitHub `/repos/:owner/:repo/releases/latest` response and returns `AvailableUpdateInfo`
- * when the release version is strictly newer than `currentVersion`.
+ * when the release version is strictly newer than `currentVersion`. The installer is the asset named exactly
+ * `ARIA-Setup-<version>.exe` at GitHub's own download link for it; its size and SHA-256 come with it when GitHub
+ * states them (D80).
  */
 export function parseLatestGitHubRelease(
   raw: unknown,
@@ -191,17 +202,23 @@ export function parseLatestGitHubRelease(
 
   let installerUrl: string | undefined;
   let installerName: string | undefined;
+  let installerSize: number | undefined;
+  let installerSha256: string | undefined;
   if (Array.isArray(obj.assets)) {
+    const expectedName = installerNameFor(version);
+    const expectedUrl = installerUrlFor(tagName, expectedName, repo);
     for (const asset of obj.assets) {
       if (!asset || typeof asset !== "object") continue;
       const a = asset as Record<string, unknown>;
       const name = typeof a.name === "string" ? a.name.trim() : "";
       const url = typeof a.browser_download_url === "string" ? a.browser_download_url.trim() : "";
-      if (name.toLowerCase().endsWith(".exe") && url.startsWith("https://github.com/")) {
-        installerName = name;
-        installerUrl = url;
-        break;
-      }
+      if (name !== expectedName || url !== expectedUrl) continue;
+      installerName = name;
+      installerUrl = url;
+      if (typeof a.size === "number" && Number.isSafeInteger(a.size) && a.size > 0) installerSize = a.size;
+      const digest = typeof a.digest === "string" ? SHA256_DIGEST.exec(a.digest.trim()) : null;
+      if (digest) installerSha256 = digest[1]!.toLowerCase();
+      break;
     }
   }
 
@@ -217,6 +234,8 @@ export function parseLatestGitHubRelease(
     ...(notes ? { notes } : {}),
     ...(installerUrl ? { installerUrl } : {}),
     ...(installerName ? { installerName } : {}),
+    ...(installerSize !== undefined ? { installerSize } : {}),
+    ...(installerSha256 ? { installerSha256 } : {}),
     ...(publishedAt ? { publishedAt } : {}),
   };
 }

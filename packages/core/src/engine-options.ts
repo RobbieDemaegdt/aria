@@ -6,6 +6,7 @@ import type { FetchLike } from "./github/fetch.ts";
 import type { McpSecretStore } from "./integrations/config.ts";
 import type { McpDirectClient, TransportFactory } from "./integrations/mcp-client.ts";
 import type { TelegramSecretStore } from "./relay/telegram.ts";
+import type { UpdateInstaller } from "./releases/updates.ts";
 import type { AgentRuntime } from "./runtime/types.ts";
 import type { BackupHooks } from "./store/store.ts";
 import type { TaskTracker } from "./trackers/types.ts";
@@ -110,6 +111,8 @@ export interface EngineOptions {
   appVersion?: string;
   /** Optional override for the structured release notes catalog (tests). */
   releases?: readonly ReleaseNoteEntry[];
-  /** Optional fetch function to check GitHub Releases for a newer version of ARIA on startup. */
+  /** Optional fetch function to check GitHub Releases for a newer version of ARIA (at start, then every 6 hours, D80). */
   updateCheckFetch?: FetchLike;
+  /** An installed build's Update now (D80): where installers are downloaded, and how the shell starts one. */
+  updateInstaller?: UpdateInstaller;
 }

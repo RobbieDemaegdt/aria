@@ -115,6 +115,7 @@ export const DEFAULT_ATTENTION: AttentionSettings = {
   outlookTriageMode: "rules_and_utility",
   outlookVipSenders: [],
   outlookIgnoreSenders: [],
+  autoUpdateCheck: true,
 };
 
 const SPOKEN_MAX_CHARS = 180;

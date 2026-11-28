@@ -171,8 +171,10 @@ export interface OnboardingState {
   tourCompleted?: boolean;
   /** Version string of the latest "What's new" release notes the user dismissed, if any. */
   dismissedWhatsNewVersion?: string;
-  /** Version string of the latest available update popup the user dismissed, if any. */
+  /** Version string of the latest available update popup the user dismissed, if any. No longer written (D80). */
   dismissedAvailableUpdateVersion?: string;
+  /** Later on the update bar (D80): the bar stays hidden for this version until `until` (ms since the epoch). */
+  updateSnooze?: { version: string; until: number };
   updatedAt: number;
 }
 
@@ -184,8 +186,30 @@ export interface AvailableUpdateInfo {
   releaseUrl: string;
   installerUrl?: string;
   installerName?: string;
+  /** The installer's size in bytes, as GitHub's API states it for the asset. */
+  installerSize?: number;
+  /** The installer's SHA-256 (lowercase hex), from the asset's `digest`. Update now needs it (D80). */
+  installerSha256?: string;
   publishedAt?: string;
 }
+
+/**
+ * Update now (D80): where the download and the install of an available update stand. `idle` until you start one;
+ * `waiting`: downloaded and checked, it installs once no task is in progress (Update when they're done); `failed` says
+ * why, and Update now can be tried again.
+ */
+export type UpdateStatus =
+  | { phase: "idle" }
+  | { phase: "downloading"; version: string; received: number; total: number }
+  | { phase: "waiting"; version: string }
+  | { phase: "installing"; version: string }
+  | { phase: "failed"; version: string; reason: string };
+
+/** Check now (D80): what GitHub's latest release says, or why ARIA couldn't read it. */
+export type UpdateCheckResult =
+  | { status: "available"; update: AvailableUpdateInfo }
+  | { status: "latest" }
+  | { status: "failed"; reason: string };
 
 export interface ReleaseFeatureItem {
   title: string;
@@ -744,6 +768,9 @@ export interface AttentionSettings {
   outlookVipSenders?: string[];
   /** Sender email addresses, domains, or subject patterns to ignore (max 50). */
   outlookIgnoreSenders?: string[];
+
+  /** Read GitHub's latest release at start, every 6 hours and after a sleep (D80, default true). Off: only Check now. */
+  autoUpdateCheck?: boolean;
 }
 
 export interface QuestionCardPayload {
@@ -953,6 +980,10 @@ export interface AppState {
   releases?: ReleaseNoteEntry[];
   /** Newer release available to download from GitHub Releases, if any. */
   availableUpdate?: AvailableUpdateInfo;
+  /** Update now's progress (D80). */
+  updateStatus?: UpdateStatus;
+  /** Whether this build can install an update itself (an installed build; not a development one). */
+  canInstallUpdates?: boolean;
   /** Latest Copilot CLI & system doctor report, if run. */
   doctor?: DoctorReport;
 }
@@ -1855,6 +1886,8 @@ export type EngineEvent =
   | { type: "focus"; cardId?: string; taskId?: string }
   /** From the desktop shell (Ctrl+Space global hotkey or tray menu): open the Spotlight-style quick prompt bar (Phase 6C). */
   | { type: "quick_prompt" }
+  /** From the desktop shell (the tray's Update to v…): the update bar asks whether to restart into the update (D80). */
+  | { type: "update_prompt" }
   /** A short spoken announcement for a blocking or milestone event (Phase 6D, PLAN.md §4.7, §10 Phase 6D). */
   | {
       type: "speak";
@@ -1872,6 +1905,8 @@ export type EngineEvent =
   | { type: "onboarding"; onboarding: OnboardingState }
   /** A newer release of ARIA is available to download. */
   | { type: "available_update"; availableUpdate: AvailableUpdateInfo | null }
+  /** Update now's download or install moved on (D80). */
+  | { type: "update_status"; updateStatus: UpdateStatus }
   /** System & Copilot CLI doctor report updated. */
   | { type: "doctor"; doctor: DoctorReport };
 
@@ -2341,7 +2376,10 @@ export const SetAttentionInput = z.object({
   outlookTriageMode: z.enum(["rules_and_utility", "rules_only"]).optional(),
   outlookVipSenders: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
   outlookIgnoreSenders: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+  autoUpdateCheck: z.boolean().optional(),
 });
+/** Update now (D80); `whenIdle`: Update when they're done, the install waits until no task is in progress. */
+export const InstallUpdateInput = z.object({ whenIdle: z.boolean().optional() });
 export const SetPhonePushSecretsInput = z.object({
   ntfyToken: z.string().max(500).nullable().optional(),
   pushoverAppToken: z.string().max(200).nullable().optional(),
@@ -3180,6 +3218,18 @@ export interface AriaApi {
   // Onboarding, Copilot CLI Doctor & Release Notes
   runDoctor(): Promise<DoctorReport>;
   setOnboardingState(input: z.infer<typeof SetOnboardingStateInput>): Promise<OnboardingState>;
+  /**
+   * Update now (D80): downloads the available update's installer, checks its size and SHA-256, and restarts ARIA into
+   * it. It takes no URL or path: what is downloaded is the release the engine found, never something the window names.
+   * `whenIdle`: the install waits until no task is in progress. While one waits, a call without it installs at once.
+   */
+  installUpdate(input?: z.infer<typeof InstallUpdateInput>): Promise<void>;
+  /** An install that waits for the tasks is called off (the downloaded installer is deleted). */
+  cancelUpdate(): Promise<void>;
+  /** Later (D80): hides the update bar for the available version for a day. */
+  snoozeUpdate(): Promise<OnboardingState>;
+  /** Check now (D80): reads GitHub's latest release. An update it finds isn't hidden by Later any more. */
+  checkForUpdates(): Promise<UpdateCheckResult>;
   openCliTerminal(input: z.infer<typeof OpenCliTerminalInput>): Promise<{ launched: boolean; error?: string }>;
   openLogsFolder(): Promise<void>;
 }

@@ -1,6 +1,6 @@
 import type { AppState, ChatItem, ConductorTranscript, EngineEvent, AriaApi, NoticeItem, Task, TranscriptEntry, TranscriptPage } from "@aria/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mergeLive, reloaded, selectAgents, useAria, withEarlier, type LoadedTranscript } from "../src/renderer/src/store";
+import { canUpdateNow, mergeLive, reloaded, selectAgents, tasksStoppedByRestart, updateBarShown, useAria, withEarlier, type LoadedTranscript } from "../src/renderer/src/store";
 
 // A stand-in for the preload bridge: the test decides when getState() answers and which events arrive meanwhile.
 const listeners = new Set<(event: EngineEvent) => void>();
@@ -743,7 +743,7 @@ describe("renderer store", () => {
     expect(useAria.getState().newSession).toBeNull();
   });
 
-  it("opens the update popup automatically on startup when an update is available or installed, and records dismissal", async () => {
+  it("leaves an available update to the update bar at startup, and closing What's New only marks this version's notes seen (D80)", async () => {
     const onboardingPatches: unknown[] = [];
     api.setOnboardingState = async (patch) => {
       onboardingPatches.push(patch);
@@ -775,16 +775,148 @@ describe("renderer store", () => {
     );
     await loading;
 
+    // Opened for the notes of 0.2.0 (ARIA was updated to it), not for 0.3.0 being out.
     expect(useAria.getState().whatsNewModalOpen).toBe(true);
     useAria.getState().closeWhatsNewModal();
     await new Promise((r) => setTimeout(r, 0));
     expect(useAria.getState().whatsNewModalOpen).toBe(false);
-    expect(onboardingPatches).toEqual([
-      {
-        dismissedWhatsNewVersion: "0.2.0",
-        dismissedAvailableUpdateVersion: "0.3.0",
-      },
-    ]);
+    expect(onboardingPatches).toEqual([{ dismissedWhatsNewVersion: "0.2.0" }]);
+    expect(updateBarShown(useAria.getState(), Date.now())).toBe(true);
+
+    // An update found while ARIA runs doesn't open What's New either.
+    useAria.getState().apply({
+      type: "available_update",
+      availableUpdate: { version: "0.4.0", tagName: "v0.4.0", releaseUrl: "https://github.com/RobbieDemaegdt/aria/releases/tag/v0.4.0" },
+    });
+    expect(useAria.getState().whatsNewModalOpen).toBe(false);
+    expect(useAria.getState().availableUpdate?.version).toBe("0.4.0");
+  });
+
+  describe("the update bar (D80)", () => {
+    const update = {
+      version: "0.3.0",
+      tagName: "v0.3.0",
+      releaseUrl: "https://github.com/RobbieDemaegdt/aria/releases/tag/v0.3.0",
+      installerName: "ARIA-Setup-0.3.0.exe",
+      installerUrl: "https://github.com/RobbieDemaegdt/aria/releases/download/v0.3.0/ARIA-Setup-0.3.0.exe",
+      installerSize: 1234,
+      installerSha256: "a".repeat(64),
+    };
+    const onboarding = { lastSeenVersion: "0.2.0", dismissedWhatsNewVersion: "0.2.0", updatedAt: 1 };
+    const task = (id: string, state: Task["state"]) => ({ id, state }) as Task;
+    let installs = 0;
+    beforeEach(() => {
+      installs = 0;
+      api.installUpdate = async () => {
+        installs++;
+      };
+      api.snoozeUpdate = async () => ({ ...onboarding, updateSnooze: { version: "0.3.0", until: 2_000 }, updatedAt: 2 });
+      useAria.setState({
+        appVersion: "0.2.0",
+        onboarding,
+        availableUpdate: update,
+        updateStatus: { phase: "idle" },
+        canInstallUpdates: true,
+        updateConfirming: false,
+        whatsNewModalOpen: false,
+        tasks: [],
+      });
+    });
+
+    it("shows while an update is available, hides for Later until it ends, and comes back for a newer version", async () => {
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(true);
+      await useAria.getState().snoozeUpdate();
+      expect(useAria.getState().onboarding.updateSnooze).toEqual({ version: "0.3.0", until: 2_000 });
+      expect(updateBarShown(useAria.getState(), 1_999)).toBe(false);
+      expect(updateBarShown(useAria.getState(), 2_000)).toBe(true);
+      useAria.setState({ availableUpdate: { ...update, version: "0.4.0", tagName: "v0.4.0" } });
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(true);
+      useAria.setState({ availableUpdate: { ...update, version: "0.2.0" } });
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(false);
+    });
+
+    it("stays while Update now runs or after it failed, even when Later was picked", () => {
+      useAria.setState({ onboarding: { ...onboarding, updateSnooze: { version: "0.3.0", until: Number.MAX_SAFE_INTEGER } } });
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(false);
+      useAria.getState().apply({ type: "update_status", updateStatus: { phase: "downloading", version: "0.3.0", received: 10, total: 1234 } });
+      expect(useAria.getState().updateStatus).toMatchObject({ phase: "downloading", received: 10 });
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(true);
+      useAria.getState().apply({ type: "update_status", updateStatus: { phase: "failed", version: "0.3.0", reason: "No." } });
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(true);
+    });
+
+    it("offers Update now only in a build that installs, for a release with its size and checksum", () => {
+      expect(canUpdateNow(useAria.getState())).toBe(true);
+      expect(canUpdateNow({ ...useAria.getState(), canInstallUpdates: false })).toBe(false);
+      expect(canUpdateNow({ ...useAria.getState(), availableUpdate: { ...update, installerSha256: undefined } as never })).toBe(false);
+      expect(canUpdateNow({ ...useAria.getState(), availableUpdate: null })).toBe(false);
+    });
+
+    it("updates at once with no task in progress, and asks first when a restart would stop some", async () => {
+      useAria.setState({ whatsNewModalOpen: true, tasks: [task("t1", "done"), task("t2", "interrupted")] });
+      useAria.getState().requestUpdate();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(installs).toBe(1);
+      expect(useAria.getState().whatsNewModalOpen).toBe(false);
+
+      useAria.setState({ tasks: [task("t1", "running"), task("t2", "waiting_input"), task("t3", "done")] });
+      expect(tasksStoppedByRestart(useAria.getState().tasks)).toBe(2);
+      useAria.getState().requestUpdate();
+      expect(useAria.getState().updateConfirming).toBe(true);
+      expect(installs).toBe(1);
+      useAria.getState().cancelUpdateConfirm();
+      expect(useAria.getState().updateConfirming).toBe(false);
+
+      useAria.getState().requestUpdate();
+      await useAria.getState().confirmUpdate();
+      expect(useAria.getState().updateConfirming).toBe(false);
+      expect(installs).toBe(2);
+    });
+
+    it("Update when they're done asks the engine to wait; Restart now and Cancel go to it too", async () => {
+      const asked: unknown[] = [];
+      let cancels = 0;
+      api.installUpdate = async (input) => {
+        asked.push(input);
+      };
+      api.cancelUpdate = async () => {
+        cancels++;
+      };
+      useAria.setState({ tasks: [task("t1", "running")] });
+      useAria.getState().requestUpdate();
+      await useAria.getState().confirmUpdate({ whenIdle: true });
+      expect(asked).toEqual([{ whenIdle: true }]);
+      expect(useAria.getState().updateConfirming).toBe(false);
+
+      useAria.getState().apply({ type: "update_status", updateStatus: { phase: "waiting", version: "0.3.0" } });
+      useAria.setState({ onboarding: { ...onboarding, updateSnooze: { version: "0.3.0", until: Number.MAX_SAFE_INTEGER } } });
+      // Later doesn't hide an update that waits for the tasks.
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(true);
+      await useAria.getState().confirmUpdate();
+      expect(asked).toEqual([{ whenIdle: true }, {}]);
+      await useAria.getState().cancelUpdate();
+      expect(cancels).toBe(1);
+    });
+
+    it("the tray's Update to v… makes the bar ask, even after Later", () => {
+      useAria.setState({ whatsNewModalOpen: true, onboarding: { ...onboarding, updateSnooze: { version: "0.3.0", until: Number.MAX_SAFE_INTEGER } } });
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(false);
+      useAria.getState().apply({ type: "update_prompt" });
+      expect(useAria.getState().updateConfirming).toBe(true);
+      expect(useAria.getState().whatsNewModalOpen).toBe(false);
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(true);
+      expect(installs).toBe(0);
+    });
+
+    it("Check now returns what the engine found", async () => {
+      api.checkForUpdates = async () => ({ status: "latest" });
+      expect(await useAria.getState().checkForUpdates()).toEqual({ status: "latest" });
+      api.checkForUpdates = async () => {
+        throw new Error("Unknown sender");
+      };
+      expect(await useAria.getState().checkForUpdates()).toBeNull();
+      expect(useAria.getState().actionError).toContain("Unknown sender");
+    });
   });
 
   it("handles new session with extra context and files, and preserves them on rerun", async () => {
