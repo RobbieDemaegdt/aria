@@ -3,7 +3,7 @@
  * from a refused step, destructive commands on their cards, "Save as memory" on your own words only, the memories
  * table, and briefs with {{memory}}. Against the scripted runtime, with real git repositories.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -11,6 +11,7 @@ import type { CardItem, ChatItem, Memory, Task } from "@aria/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { AriaEngine, type EngineOptions } from "../src/engine.ts";
 import { briefNotes, memoryBlock, memoryProblem } from "../src/memory/memories.ts";
+import { canonicalPath } from "../src/policy/command.ts";
 import { DEFAULT_RULES } from "../src/policy/defaults.ts";
 import { FakeRuntime, type FakeWorkerStep } from "../src/runtime/fake.ts";
 import type { PermissionAsk } from "../src/runtime/types.ts";
@@ -161,6 +162,40 @@ describe("Always allow this (§5.3, D26–D28)", () => {
     const kept = again.savePolicyRules([{ id: "old", match: "node build.js", effect: "auto", note: "A note added" }, { match: "npm test", effect: "auto" }]);
     expect(kept.rules.map((r) => r.match)).toEqual(["node build.js", "npm test"]);
     expect(() => again.savePolicyRules([{ id: "old", match: "node build.js --watch", effect: "auto" }])).toThrow(/Only exactly this/);
+  });
+});
+
+describe("sandbox boundary recovery", () => {
+  it("offers a one-time, task and persistent scope without weakening ordinary policy", async () => {
+    const { base, make, runtime } = setup();
+    const reference = path.join(base, "reference.txt");
+    writeFileSync(reference, "reference\n");
+    const step: FakeWorkerStep = {
+      tool: "view",
+      args: { path: reference },
+      ask: { kind: "read", path: reference, sandboxBlock: true },
+    };
+    runtime.workerScripts.push({ steps: [step, step, { complete: "Read it twice." }] });
+    const engine = make();
+    await engine.start();
+    const started = await engine.startTask({ repoId: project(engine, "Moonrise").id, brief: "Read the reference" });
+    await until(() => stateOf(engine, started.id) === "waiting_permission");
+    const pending = task(engine, started.id)!.permissions![0]!;
+    const worktree = started.worktreePath!;
+    expect(pending).toMatchObject({ sandbox: { access: "read", target: canonicalPath(realpathSync.native(reference), worktree), persistent: "path" } });
+    expect(cards(engine, "task_permission")[0]!.payload.sandbox).toEqual(pending.sandbox);
+    expect(() => engine.decidePermission(started.id, pending.id, "task")).not.toThrow();
+    await until(() => stateOf(engine, started.id) === "done");
+    expect(worker(runtime, started).decisions).toEqual([{ approved: true }, { approved: true }]);
+
+    runtime.workerScripts.push({ steps: [step, { complete: "Read it again." }] });
+    const again = await engine.startTask({ repoId: project(engine, "Other").id, brief: "Read it again" });
+    await until(() => stateOf(engine, again.id) === "waiting_permission");
+    const againPending = task(engine, again.id)!.permissions![0]!;
+    engine.decidePermission(again.id, againPending.id, "always");
+    await until(() => stateOf(engine, again.id) === "done");
+    expect(engine.policySettings().sandbox.allowedPaths).toContain(realpathSync.native(reference));
+    expect(cards(engine, "task_permission").some((card) => card.payload.decision === "always")).toBe(true);
   });
 });
 

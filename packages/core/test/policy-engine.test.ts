@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { PolicyRule, TaskGrant } from "@aria/protocol";
 import { describe, expect, it } from "vitest";
@@ -266,6 +267,38 @@ describe("decideWorker, sandboxed (D20)", () => {
     expect(effect({ kind: "read", path: `${sessionDir}\\plan.md` }, { sessionDir })).toBe("auto");
     expect(effect({ kind: "write", path: ".git" }, { sessionDir })).toBe("never");
     expect(effect({ kind: "write", path: `${WT}\\.git` }, { sessionDir })).toBe("never");
+  });
+
+  it("turns sandbox boundary blocks into narrow, repeatable permission requests", () => {
+    const read: PermissionAsk = { kind: "read", path: path.resolve("package.json"), sandboxBlock: true };
+    const decision = decideWorker(read, ctx());
+    expect(decision).toMatchObject({
+      effect: "ask",
+      request: {
+        sandbox: { access: "read", target: canonicalPath(realpathSync.native(path.resolve("package.json")), WT), persistent: "path" },
+      },
+    });
+    const grants = grantsFor(read);
+    expect(effect(read, { grants })).toBe("auto");
+    expect(effect({ ...read, path: path.resolve("README.md") }, { grants })).toBe("ask");
+
+    const url: PermissionAsk = { kind: "url", url: "https://docs.example.com/guide", sandboxBlock: true };
+    expect(decideWorker(url, ctx())).toMatchObject({
+      effect: "ask",
+      request: { sandbox: { access: "network", target: "docs.example.com", persistent: "host" } },
+    });
+    const urlGrants = grantsFor(url);
+    expect(effect(url, { grants: urlGrants })).toBe("auto");
+    expect(effect({ ...url, url: "https://other.example.com/" }, { grants: urlGrants })).toBe("ask");
+    expect(effect(read, { protectedDirs: [path.dirname(path.resolve("package.json"))] })).toBe("never");
+  });
+
+  it("a sandbox block cannot bypass a Never rule or make destructive commands repeatable", () => {
+    const command = shell("curl https://example.com", { sandboxBlock: true });
+    const rules: PolicyRule[] = [...DEFAULT_RULES, { id: "never-curl", match: "curl", effect: "never" }];
+    expect(effect(command, { rules })).toBe("never");
+    const destructive = shell("Remove-Item -Recurse .\\dist", { sandboxBlock: true });
+    expect(decideWorker(destructive, ctx())).toMatchObject({ effect: "ask", request: { everyTime: true, grants: [] } });
   });
 
   it("allows the task's MCP read tools and nothing else", () => {

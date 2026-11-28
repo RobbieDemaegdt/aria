@@ -32,6 +32,7 @@ import type {
   Profile,
   Project,
   RuleOffer,
+  SandboxPermission,
   Task,
   TaskDiff,
   TaskFile,
@@ -223,6 +224,10 @@ export interface TaskManagerDeps {
   sandboxFor: (task: { repoPath: string; worktreePath: string; sessionDir?: string; allowedPaths?: string[]; nonGit?: boolean }) => Promise<WorkerSandbox | undefined>;
   /** Global allowed paths configured in sandbox settings. */
   allowedSandboxPaths?: () => readonly string[];
+  /** Local roots that sandbox cards must never make readable. */
+  protectedSandboxPaths?: () => readonly string[];
+  /** Saves a narrow, user-confirmed sandbox path or host exception. */
+  persistSandboxException?: (exception: SandboxPermission) => void;
   /** The brief template (Customize › Prompts). */
   briefTemplate: () => string;
   /** The {{memory}} block for a project's briefs: your notes for it and the global ones (D23). */
@@ -1270,6 +1275,7 @@ export class TaskManager {
           worktree,
           sandboxed,
           ...(sessionDir ? { sessionDir } : {}),
+          ...(this.deps.protectedSandboxPaths ? { protectedDirs: this.deps.protectedSandboxPaths() } : {}),
           ...(combinedReadonlyRoots.length ? { readonlyRoots: combinedReadonlyRoots } : {}),
           readTools,
           ...(currentScope.mcp ? { mcp: (server: string, wireName: string) => currentScope.mcp?.(server, wireName) } : {}),
@@ -1764,10 +1770,17 @@ export class TaskManager {
     const open = live?.permissions.get(permissionId);
     if (!live || !open) throw new Error("That request was already decided, or the task stopped waiting for it.");
     // D29: a destructive command asks every time; there's nothing to approve for the rest of the task.
-    if (decision === "task" && open.request.everyTime) throw new Error(`${open.pending.shortId} is destructive, so it asks every time: approve it once, or reject it.`);
+    if ((decision === "task" || decision === "always") && open.request.everyTime) {
+      const why = open.pending.sandbox ? "can't be matched to a stable sandbox resource" : open.request.kind === "mcp" ? "changes things" : "is destructive";
+      throw new Error(`${open.pending.shortId} ${why}, so it asks every time: approve it once, or reject it.`);
+    }
+    if (decision === "always") {
+      if (!open.pending.sandbox?.persistent || !this.deps.persistSandboxException) throw new Error(`${open.pending.shortId} cannot be saved as an exact sandbox exception.`);
+      this.deps.persistSandboxException(open.pending.sandbox);
+    }
     const record = this.record(id);
     let grants = record.grants ?? [];
-    if (decision === "task") {
+    if (decision === "task" || decision === "always") {
       const added: TaskGrant[] = open.request.grants
         .filter((g) => !grants.some((x) => x.key === g.key && x.target === g.target))
         .map((g) => ({ id: randomUUID(), key: g.key, target: g.target, label: g.label, at: Date.now() }));
@@ -1781,7 +1794,7 @@ export class TaskManager {
         ? { approve: false, reason: trimmed ? `The user said no: ${trimmed}` : "The user said no. Carry on without it, and mention it in your summary if it mattered." }
         : { approve: true },
     );
-    if (decision === "task") {
+    if (decision === "task" || decision === "always") {
       const covered = (request: PermissionRequestDetails) => request.grants.length > 0 && request.grants.every((g) => grants.some((x) => x.key === g.key && x.target === g.target));
       for (const other of [...live.permissions.values()]) {
         if (!covered(other.request)) continue;

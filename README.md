@@ -108,7 +108,9 @@ under Task tracker, then use **Use as task tracker** on the server's card. The c
 ## Safety in one paragraph
 
 ARIA asks before it writes anywhere that matters. Every task runs in its own worktree and, where the PC can run it, in a sandbox
-that confines the commands to that worktree and its network to package registries. A few rules hold whatever you approve or
+that confines the commands to that worktree and its network to package registries. When the sandbox is the only blocker,
+ARIA offers a card to allow that exact resource once, for the task, or (after confirmation) as a narrow persistent read-path
+or host exception. These choices do not disable the sandbox or override a fixed refusal. A few rules hold whatever you approve or
 set: no push to a default branch, no merging a pull request, no deleting, mirroring or pruning remote branches, and a sandboxed
 task doesn't push at all. Destructive commands (a recursive delete, `git reset --hard`, a force push and the like) ask every
 time. Secrets live in the operating system's keychain, never in a plain-text config. The rules are written in

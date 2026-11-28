@@ -1,6 +1,8 @@
 # ARIA — a single-chat assistant on top of Copilot CLI
 
-> Status: plan v14 · 2026-10-22 · built on the GitHub Copilot SDK (technical preview).
+> Status: plan v15 · 2026-11-27 · built on the GitHub Copilot SDK (technical preview).
+> v15 starts Phase 10: sandbox blocks become actionable permission cards with one-time,
+> task/session or persistent **narrow** grants instead of requiring users to turn the sandbox off.
 > v2 added a sessions sidebar for looking inside background sessions, and full control over the
 > model and reasoning effort used by every part of ARIA.
 > v3 structures that sidebar like the Copilot app's: per project (repo), with its sessions
@@ -110,7 +112,7 @@ Later in the conversation the user added:
 | D17 | A worker's **question** (`ask_user`) shows in Phase 2 as its task's Question card in the chat (§5.4, moved forward from Phase 3), with the offered choices and a reply box. Its task card says **Needs you**, its session view can answer it too, and the task waits for the answer. Permission and plan cards stay in Phase 3. | The user's choice (2026-10-16): being told when a session waits for input is part of the original request (§0.1). |
 | D18 | Workers may install dependencies **from the lockfile only**, inside their worktree, without asking: `npm ci`, `npm install` with no package names, `pnpm install --frozen-lockfile`, `yarn install --frozen-lockfile`, `dotnet restore`. Adding packages still needs approval. | The user's choice (2026-10-16): a fresh worktree has no dependencies, so tests can't run otherwise. It reaches the network and runs install scripts, which is no worse than an allowed `npm test`. |
 | D19 | **Action-request cards** (writes to mail, Teams, meetings and the task tracker's tasks, carried out by a short-lived session with the exact-payload check) move from Phase 3 to **Phase 5A**, which builds the same short-lived session for Submit. Until then the Conductor stays read-only. Built in Phase 5A (2026-10-22). | The user's choice (2026-10-16): Phase 3 is about the attention loop, and real writes can only be tested with a per-action OK (§0.4). |
-| D20 | Workers run in the runtime's **sandbox** when the host supports it (`client.rpc.sandbox.getHostSupport()`), set with `session.rpc.options.update({ sandboxConfig, shell })` each time a worker session opens. Read-write: the worktree, ARIA's own package caches and temp folder (`<worktree root>\.aria`), and only the parts of the repo's `.git` a commit needs (`objects`, the task's `worktrees/<name>`, `refs/heads/aria` and its reflogs). Read-only: the rest of `.git`, the task's own worktree config (`config.worktree`), the worktree's `.git` link, `~/.gitconfig`, the runtime's bundled git, the toolchains on PATH and the user's NuGet cache, NuGet config and `.npmrc`. The runtime's automatic dev-tool grants are off: they'd also make some of the user's caches writable (Cargo's among them). Network: package registries only (editable; an empty list means no network), loopback blocked, no bypass. A shell init script points npm, pnpm, yarn, NuGet, the .NET CLI, pip, Cargo and Go at ARIA's caches (the user's NuGet cache as a read-only fallback). ARIA's own git calls on a worktree run with fsmonitor and text conversion off. Where the host can't sandbox, workers stay policy-only and say **not sandboxed**. | The user's choice (2026-10-16): enable it if git and lockfile installs work in it, which the probe showed (spike 10, [spike notes](docs/spike-notes.md#worker-sandbox-10)). An allowlist isn't a sandbox (§4.8). Hooks and config in `.git` would run code on the PC the next time anyone uses git in that repo (worktree config too: a `core.fsmonitor` there runs when git looks at the worktree), and the `.git` link, `commondir` and `gitdir` would point git at another folder, so they stay read-only. The user's own caches stay read-only because a task that could write them could plant code in the user's own builds. |
+| D20 | Workers run in the runtime's **sandbox** when the host supports it (`client.rpc.sandbox.getHostSupport()`), set with `session.rpc.options.update({ sandboxConfig, shell })` each time a worker session opens. Read-write: the worktree, ARIA's own package caches and temp folder (`<worktree root>\.aria`), and only the parts of the repo's `.git` a commit needs (`objects`, the task's `worktrees/<name>`, `refs/heads/aria` and its reflogs). Read-only: the rest of `.git`, the task's own worktree config (`config.worktree`), the worktree's `.git` link, `~/.gitconfig`, the runtime's bundled git, the toolchains on PATH and the user's NuGet cache, NuGet config and `.npmrc`. The runtime's automatic dev-tool grants are off: they'd also make some of the user's caches writable (Cargo's among them). Network: package registries only (editable; an empty list means no network), loopback blocked. Sandbox bypass requests are never implicit: Phase 10 routes each blocked operation through ARIA's exact, scoped approval handler (D79). A shell init script points npm, pnpm, yarn, NuGet, the .NET CLI, pip, Cargo and Go at ARIA's caches (the user's NuGet cache as a read-only fallback). ARIA's own git calls on a worktree run with fsmonitor and text conversion off. Where the host can't sandbox, workers stay policy-only and say **not sandboxed**. | The user's choice (2026-10-16): enable it if git and lockfile installs work in it, which the probe showed (spike 10, [spike notes](docs/spike-notes.md#worker-sandbox-10)). An allowlist isn't a sandbox (§4.8). Hooks and config in `.git` would run code on the PC the next time anyone uses git in that repo (worktree config too: a `core.fsmonitor` there runs when git looks at the worktree), and the `.git` link, `commondir` and `gitdir` would point git at another folder, so they stay read-only. The user's own caches stay read-only because a task that could write them could plant code in the user's own builds. |
 | D21 | **Approve for this task** on a permission card covers the **same operation on the same target** for the rest of that task, not the whole tool: for a command, the same command text, character for character, run in the same folder; for a web address, any page on that host; for files, that folder. ARIA keeps the grant, shows it in the session view and lets you revoke it; it isn't the runtime's approve-for-session. | The user's choice (2026-10-16). Narrowed for commands after the Phase 3 review: an option's value can't be told from another argument without knowing each program's options, so `-Path a -Exclude b` and `-Exclude a -Path b` (which delete different things) must not match; what looks like a path can be code (`node -e "…//../…"`); `node` isn't a `.\node.cmd` the task wrote; `'$(x)'` is text where `"$(x)"` runs x; a line break can end a comment where a space doesn't; and a command approved in the worktree must not be approved in another folder. |
 | D22 | In Customize › Integrations, an **ARIA (Conductor) write tool** can only be set to **Ask or Never**, never Auto. Ask means "needs an action card" (until Phase 5A it worked like Never; since Phase 5A ARIA discovers Ask tools with `list_action_tools` and proposes them with `request_action`). | The user's choice (2026-10-17). The Conductor stays read-only until the action cards (D19); a write needs the exact-payload check and your click. |
 | D23 | **"Save as memory"** facts go into **task briefs only**: a project's facts into that project's briefs, global facts into every brief. ARIA's own prompt gets memory in Phase 6, with `remember` / `forget`. | The user's choice (2026-10-17). Changing ARIA's prompt reopens the conversation (spike 11), so that waits for the memory tools. |
@@ -169,6 +171,7 @@ Later in the conversation the user added:
 | D76 | **Rotated JSONL file logging (5 MB × 5 files) with deep circular-safe secret redaction**: writes structured diagnostic logs to `dataDir/logs/aria.log` with size-based rotation and Windows file-lock retry backoff, running all messages and data through recursive `redact()` that scrubs tokens, keys, auth headers, URL query secrets, and CLI flags. | Phase 9 (2026-10-27, design and review rounds 1–2). Provides diagnostic auditability while ensuring credentials and tokens never land in disk logs. |
 | D77 | **Hardened Git 2.53+ and `gh` subcommand policy rules failing closed on credential leaks and default-branch mutation**: blocks `gh api` repository mutations (`repos/:owner/:repo`), treats `gh api -X DELETE` and `gh` aliases as destructive, forbids `git update-ref` and `git branch -f` targeting the default branch, and prevents `--global`/`--system`/`--file` Git config manipulation. | Phase 9 (2026-10-27, design and review rounds 1–2). Closes subtle policy bypass vectors introduced by modern Git and GitHub CLI features. |
 | D78 | **Recorded SDK `SessionEvent[]` fixtures for deterministic state-machine and transcript regression testing**: tests replay raw recorded SDK event streams through `CopilotRuntime` and `TranscriptMapper` to verify subagent accounting, plan approvals, mid-tool crashes, and cloud budget exhaustion against actual runtime event contracts. | Phase 9 (2026-10-27, design and review rounds 1–2). Prevents regression drift against the Copilot SDK event schema. |
+| D79 | **Sandbox bypasses are request-scoped ARIA decisions, never runtime-wide approvals**: `requestSandboxBypass` keeps the original permission payload, hard/ordinary policy runs first, and each SDK result is `approve-once`. One-time, exact task, and safe persistent path/host scopes are owned and revocable by ARIA; fixed refusals, destructive every-time rules and user `Never` rules win. | Phase 10 initial implementation (2026-11-27). Makes boundary recovery usable without turning the sandbox off or weakening existing policy. |
 
 ### 0.4 Ground rules for the implementing agent
 
@@ -1284,7 +1287,7 @@ are not kept, so ARIA stores cost itself).
 |---|---|---|
 | Task (updates in place) | Title, repo, state, current intent, elapsed time, profile · effort, cost | Open, Stop |
 | Question | The task's question, choices if provided | Choice buttons, Reply |
-| Permission | What it wants to run or write, and where | Approve once, Approve for task, Reject (with note) |
+| Permission | What it wants to run or write, and where | Approve once, Approve for task, and for a safe sandbox block Always allow this exact path/host, or Reject (with note) |
 | Plan | Summary + expandable plan | Approve, Revise, Cancel |
 | Profile proposal (policy 3) | Suggested profile, model, effort, and why | Start, Change profile |
 | Done | Summary, files changed (+/−), test result | View diff, Open PR, Continue, Discard |
@@ -2460,6 +2463,135 @@ Known limits:
   - [x] **A packaged build ignores the test switches**: launched through a copy of Electron named `ARIA.exe`
     (`app.isPackaged` true, which is all the gating reads), with all three switches set: title "ARIA", no hooks, the
     real runtime (2026-10-19). An installer build packs the app differently but uses the same check.
+
+### Phase 10: Actionable sandbox blocks (initial implementation 2026-11-27; M, split into 10A–10C)
+
+**Goal:** a blocked action should stop at a clear permission card instead of making you discover, edit and restart the
+sandbox's global settings. You can allow the missing access **once**, for the **current task/session**, or **always**
+for that exact, reviewed resource. The default remains sandboxed; the answer never silently turns the whole sandbox
+off.
+
+**The problem addressed by the initial implementation.** Before Phase 10, `runtime/copilot.ts` set
+`allowBypass: false` and turned a request with `requestSandboxBypass` into a generic `other` request, dropping the
+attempted operation and target; `policy/worker.ts` then refused it. Sandboxed reads and URLs outside the grants were
+also returned as `never`, so a boundary block could not produce a recovery action. Phase 10A now preserves the
+original request, and `allowBypass: true` means only "let ARIA handle this exact pending bypass request"; it does not
+approve it. **A policy refusal and a sandbox boundary refusal are separate things.**
+
+The proposed user experience is:
+
+1. The runtime blocks a command, file or host and sends ARIA a structured request. ARIA checks the normal policy first,
+   then shows a card: **Blocked by the sandbox**, the exact command or path/URL, what boundary it crossed, why the task
+   says it is needed, and the precise access that would be added.
+2. The card offers **Allow once**, **Allow for this task**, and **Always allow this exact access**. Reject remains an
+   explicit option and can include guidance to the task. The task stays paused until a choice is made; no timeout can
+   approve anything.
+3. ARIA retries only the request that was approved. The transcript records the block, the chosen scope and the result
+   as separate events. A one-time grant is consumed. A task grant is visible and revocable in the session view. A
+   persistent grant appears under Customize › Permissions with the same target, access and reason.
+4. The choices mean the following (the UI must use these definitions in its help text):
+   - **Once**: one exact retry, then the boundary is closed again. The original command/path and sandbox boundary must
+     match; another spelling or a later action asks again.
+   - **For this task/session**: future requests may be approved only while that same task session is alive, and only when
+     their operation and target match the exact grant. It does not disable the sandbox and does not transfer to a
+     continuation in a different worktree or session. A worker resume of the same session keeps it; task restart clears
+     it. The user can revoke it immediately.
+   - **Always**: persist an ARIA-owned, structured, revocable exception for the narrow resource (for example one
+     read-only directory or one host), scoped to sandboxed tasks. It does not mean `allow all`, does not save an opaque
+     runtime permission, and never converts a `Never` rule or fixed safety refusal into an allow. Secrets, credential
+     stores, drive roots, the user's whole profile, another worktree and protected `.git` files still cannot be added.
+
+The card should call out the risk in plain language ("Allows this task to read C:\\…", not "bypass 0x…") and require a
+second confirmation for **Always**. A missing or unbounded target, a target ARIA cannot canonicalize, an unreadable
+command, or arguments that cannot be shown honestly are refused rather than offered as a broad bypass.
+
+#### 10A. Preserve and classify sandbox blocks (S–M)
+
+- Spike the pinned SDK, without model calls, with a test session that tries one blocked read, write, shell path, and
+  outbound host. Record the exact `PermissionRequest` fields, when `requestSandboxBypass` appears, and the behavior of
+  `approve-once`, `approve-for-session`, `approve-for-location` and `approve-permanently`. Compare `allowBypass: false`
+  and `true` and verify that a rejected bypass leaves the sandbox active. Put the fixture in the recorded SDK event
+  tests rather than relying on package types alone; update the SDK notes with any API/version assumption.
+- Change the runtime normalization so a sandbox boundary request retains its original kind, exact payload and a
+  `sandboxBlock` classification (read/write path, network host, command and working directory). Do not flatten it to
+  `other`. Add a stable, canonical identity for the boundary request and a boolean that says whether the runtime can
+  safely retry only that request.
+- In the worker policy, evaluate fixed/hard rules, destructive-command rules, MCP tool policy and the user's `Never`
+  rules first. Only a request whose ordinary policy would otherwise be permitted, and that is blocked **solely by the
+  sandbox boundary**, becomes an actionable block. A push/merge fixed rule, destructive action, malformed command,
+  protected path, or explicit Never remains a refusal. The existing Ask-every-time rules (D28–D30) keep their current
+  scope: a sandbox exception cannot make destructive or external writes auto-run.
+- The initial implementation enables runtime bypass requests (`allowBypass`) so the SDK routes a blocked exact
+  operation to ARIA's permission handler. Each verdict is still `approve-once`; task scope and persistence are owned
+  by ARIA, not by SDK-wide bypass state. Failure to configure the sandbox still fails closed. Do not update the live
+  session's sandbox spec globally in response to a card; use a verdict for the one pending request, or a checked ARIA
+  grant for later identical requests. A real-runtime probe remains required before this rollout is called complete.
+- Keep the runtime's approval result internal to the adapter: ordinary permissions still use ARIA's existing grants;
+  sandbox decisions add a scoped `SandboxGrant` verdict. The engine must not confuse SDK "approve for session" with
+  unrestricted access.
+
+#### 10B. Scoped grants and recovery UX (M)
+
+- Extend protocol types with a discriminated sandbox block (kind, resource, access, command/cwd where relevant,
+  canonical target, reason, and a safe display value), plus the decision scope `once | task | always | reject`.
+  Preserve the distinction in `PendingPermission`, the card payload and transcript entries. Do not overload an
+  ordinary command rule with arbitrary filesystem/network access.
+- Add a `SandboxGrant` collection to task state. Its identity includes operation, canonical target and access mode.
+  It starts only after the user approves the task scope, survives resume of that same session, covers all currently
+  waiting requests with the same identity, and is revocable. A task grant is cleared on cleanup, rerun or a new session;
+  its access is never inherited by a child task.
+- Add persistent `SandboxException` records to the policy store for **Always**. Start narrowly with exact read-only
+  local paths and exact/wildcard hosts already accepted by sandbox settings. Treat a write-path exception, executable
+  shell exception or an exception whose request identity is ambiguous as not persistable until 10C; those cases can
+  still offer Once and For this task. Store `createdAt`, reason, access and target, and make deletion immediate for newly
+  started or resumed sessions. Migrate existing `allowedPaths` and `allowedHosts` without changing their effective
+  access.
+- Reuse the existing permission manager and card, but give sandbox blocks their own title, risk explanation and
+  primary/secondary buttons. The card opens collapsed details only for the full command; the concise line always shows
+  the actual resource. "For this task" is unavailable where the runtime cannot provide a stable identity. "Always" is
+  unavailable where the target is outside the safe exception classes. Existing ordinary approval cards and D21 task
+  grants stay unchanged.
+- After approval, acknowledge the scope in the card receipt and let the worker continue. A one-time approval retries
+  exactly once; a task/persistent grant may satisfy a newly emitted identical request by returning the one-request SDK
+  result after ARIA has checked its identity. Do not use the runtime's permanent approval API for ARIA's **Always**
+  choice; ARIA owns the list so it can validate, display and revoke it.
+- On a denied or expired request, send useful feedback back to the worker: which resource was blocked, which option was
+  rejected, and whether it should use an in-worktree alternative. Do not suggest changing or disabling the sandbox in
+  a way that bypasses the policy checks.
+
+#### 10C. Management, verification and rollout (S–M)
+
+- Add a **Sandbox exceptions** subsection to Customize › Permissions. List target, read/write/network access, scope,
+  source (manual, card or task path) and add/revoke controls. Keep the sandbox's Enabled switch and global hosts/paths
+  for advanced users, but a card approval writes only the narrow exception required for that action. Warnings for
+  GitHub, credentials, broad folders and local network follow the stricter of the current and existing D20 rules.
+- Add policy tests for every block class and scope: once is consumed, task identities cannot drift to a different
+  working directory/argument/path spelling, Always survives restart and is removable, a user `Never` wins, D28/D29
+  destructive commands remain every-time, and hard Git/GitHub rules cannot be bypassed. Include Windows case rules,
+  separators, drive-relative paths, 8.3 names, links, encoded URLs and Unicode display values.
+- Add task-manager tests for multiple concurrent requests, cancellation/restart, revocation while work is paused,
+  stale card clicks, resume, and an ARIA conversational approval that names the right short id. None of the sandbox
+  scopes may be inferred from model/task text: only a direct card or validated Conductor decision approves a request.
+- Add scripted UI specs for one-time recovery, session recovery, persistent recovery with confirmation/revoke, and a
+  fixed-rule refusal that offers no bypass. Add a real-runtime, read-only probe for one blocked reference-file read and
+  one disallowed host. With explicit per-action OK, also check one harmless write outside the worktree; stop after the
+  result is verified and delete any temporary resource.
+- Update §4.8, §5.4, the safety paragraph in `README.md`, and the SDK spike appendix. Record the final semantics as
+  decisions in §0.3 when the spike proves them. Keep a feature flag during rollout; turning it off restores the current
+  fail-closed behavior and should not alter ordinary permission rules or existing sandbox settings.
+
+Initial implementation status (2026-11-27): the runtime adapter preserves sandbox bypass requests and uses
+`approve-once`; the policy and card implement exact once/task scopes and persistent read-path or host exceptions; hard
+refusals still win; paths are resolved before matching/persistence; and ARIA data/credential paths are refused. The
+existing sandbox host/path lists are the first persistent store and are editable in Customize › Permissions. The more
+structured audit record, dedicated exception list, and real-runtime probes remain 10C rollout work.
+
+**Done when:** from a normal sandboxed task, a blocked read or host produces a card in the one chat; **Allow once**,
+**Allow for this task**, and **Always allow this exact access** each complete the intended scope; the task resumes when
+it should; and no choice can weaken a hard refusal, a `Never` rule, an external-write confirmation, or the sandbox for
+an unrelated action. A user can inspect and revoke every non-one-time grant. Until the Phase 10A spike proves the runtime
+behavior, the exact SDK result used for a retry is intentionally unspecified; the trust boundary and scope above are
+not.
 
 ---
 

@@ -45,8 +45,8 @@ export type AnyAriaTool = AriaTool<any>;
 /** What a session asks permission for, in ARIA's own terms (mapped from the SDK's permission request). `intention` is
  * what the agent says it's for. */
 export type PermissionAsk =
-  | { kind: "read"; path: string; intention?: string }
-  | { kind: "write"; path: string; intention?: string }
+  | { kind: "read"; path: string; intention?: string; sandboxBlock?: true }
+  | { kind: "write"; path: string; intention?: string; sandboxBlock?: true }
   | {
       kind: "shell";
       command: string;
@@ -59,11 +59,12 @@ export type PermissionAsk =
       intention?: string;
       /** The tool call it's for, when the runtime says (the session view finds the step by it). */
       toolCallId?: string;
+      sandboxBlock?: true;
     }
-  | { kind: "mcp"; server: string; tool: string; args: unknown }
-  | { kind: "custom-tool"; tool: string }
-  | { kind: "url"; url: string; intention?: string }
-  | { kind: "other"; detail: string };
+  | { kind: "mcp"; server: string; tool: string; args: unknown; sandboxBlock?: true }
+  | { kind: "custom-tool"; tool: string; sandboxBlock?: true }
+  | { kind: "url"; url: string; intention?: string; sandboxBlock?: true }
+  | { kind: "other"; detail: string; sandboxBlock?: true };
 
 /** `unavailable`: nobody can answer (ARIA is shutting down); the runtime is told the user isn't available. */
 export type PermissionVerdict = { approve: true } | { approve: false; reason: string; unavailable?: boolean };

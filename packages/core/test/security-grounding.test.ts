@@ -2,7 +2,7 @@
  * The Conductor's words grant nothing by themselves: what a task may read outside its repository (`allowedPaths`), and
  * `create_repo` / `clone_repo`, have to come from your own latest message (an injection guard).
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CardItem } from "@aria/protocol";
@@ -97,7 +97,7 @@ describe("grantablePaths", () => {
     mkdirSync(protectedDir);
     const open = path.join(base, "open");
     mkdirSync(open);
-    expect(grantablePaths([open, protectedDir, path.join(base, "missing"), "relative", path.parse(base).root], [protectedDir])).toEqual([path.resolve(open)]);
+    expect(grantablePaths([open, protectedDir, path.join(base, "missing"), "relative", path.parse(base).root], [protectedDir])).toEqual([realpathSync.native(open)]);
   });
 });
 
