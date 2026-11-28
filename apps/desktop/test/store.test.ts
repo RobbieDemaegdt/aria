@@ -872,6 +872,51 @@ describe("renderer store", () => {
       expect(useAria.getState().updateConfirming).toBe(false);
       expect(installs).toBe(2);
     });
+
+    it("Update when they're done asks the engine to wait; Restart now and Cancel go to it too", async () => {
+      const asked: unknown[] = [];
+      let cancels = 0;
+      api.installUpdate = async (input) => {
+        asked.push(input);
+      };
+      api.cancelUpdate = async () => {
+        cancels++;
+      };
+      useAria.setState({ tasks: [task("t1", "running")] });
+      useAria.getState().requestUpdate();
+      await useAria.getState().confirmUpdate({ whenIdle: true });
+      expect(asked).toEqual([{ whenIdle: true }]);
+      expect(useAria.getState().updateConfirming).toBe(false);
+
+      useAria.getState().apply({ type: "update_status", updateStatus: { phase: "waiting", version: "0.3.0" } });
+      useAria.setState({ onboarding: { ...onboarding, updateSnooze: { version: "0.3.0", until: Number.MAX_SAFE_INTEGER } } });
+      // Later doesn't hide an update that waits for the tasks.
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(true);
+      await useAria.getState().confirmUpdate();
+      expect(asked).toEqual([{ whenIdle: true }, {}]);
+      await useAria.getState().cancelUpdate();
+      expect(cancels).toBe(1);
+    });
+
+    it("the tray's Update to v… makes the bar ask, even after Later", () => {
+      useAria.setState({ whatsNewModalOpen: true, onboarding: { ...onboarding, updateSnooze: { version: "0.3.0", until: Number.MAX_SAFE_INTEGER } } });
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(false);
+      useAria.getState().apply({ type: "update_prompt" });
+      expect(useAria.getState().updateConfirming).toBe(true);
+      expect(useAria.getState().whatsNewModalOpen).toBe(false);
+      expect(updateBarShown(useAria.getState(), 1_000)).toBe(true);
+      expect(installs).toBe(0);
+    });
+
+    it("Check now returns what the engine found", async () => {
+      api.checkForUpdates = async () => ({ status: "latest" });
+      expect(await useAria.getState().checkForUpdates()).toEqual({ status: "latest" });
+      api.checkForUpdates = async () => {
+        throw new Error("Unknown sender");
+      };
+      expect(await useAria.getState().checkForUpdates()).toBeNull();
+      expect(useAria.getState().actionError).toContain("Unknown sender");
+    });
   });
 
   it("handles new session with extra context and files, and preserves them on rerun", async () => {

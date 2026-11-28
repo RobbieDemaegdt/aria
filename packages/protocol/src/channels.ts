@@ -151,6 +151,8 @@ export const CHANNELS = {
   setOnboardingState: "aria:set-onboarding-state",
   installUpdate: "aria:install-update",
   snoozeUpdate: "aria:snooze-update",
+  cancelUpdate: "aria:cancel-update",
+  checkForUpdates: "aria:check-for-updates",
   openCliTerminal: "aria:open-cli-terminal",
   openLogsFolder: "aria:open-logs-folder",
   event: "aria:event",

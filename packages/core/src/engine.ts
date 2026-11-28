@@ -80,6 +80,7 @@ import type {
   TranscriptPage,
   TranscriptPageInput,
   UiState,
+  UpdateCheckResult,
   UtilitySettings,
   Watch,
   YourWords,
@@ -393,6 +394,8 @@ export class AriaEngine {
       ...(options.updateCheckFetch ? { checkFetch: options.updateCheckFetch } : {}),
       ...(options.updateInstaller ? { installer: options.updateInstaller } : {}),
       ...(options.watchJitter !== undefined ? { jitter: options.watchJitter } : {}),
+      autoCheck: () => this.attentionSettings().autoUpdateCheck !== false,
+      busyTasks: () => this.taskManager?.busyCount() ?? 0,
       emit: (event) => this.emit(event),
       logFailure: (step) => this.logFailure(step),
     });
@@ -567,6 +570,8 @@ export class AriaEngine {
 
   private emit(event: EngineEvent): void {
     this.emitter.emit("event", event);
+    // Update when they're done (D80) waits for the tasks.
+    if (event.type === "task" || event.type === "task_removed") this.updates.tasksChanged();
   }
 
   private setStatus(status: ConductorStatus): void {
@@ -1869,6 +1874,7 @@ export class AriaEngine {
     this.db.setSetting("attention.settings", toStore);
     const settings = this.attentionSettings();
     this.emit({ type: "attention", settings });
+    if (cleanPatch.autoUpdateCheck !== undefined) this.updates.autoCheckChanged();
     if (this.runtimeReady && !this.stopped) {
       this.telegram.sync();
     }
@@ -3792,14 +3798,29 @@ export class AriaEngine {
     return this.updates.availableUpdate();
   }
 
-  /** Reads GitHub's latest release now (it also runs at start and every 6 hours, D80). */
-  checkForAppUpdate(): Promise<AvailableUpdateInfo | null> {
-    return this.updates.check();
+  /**
+   * Check now (D80): reads GitHub's latest release (it also runs at start and every 6 hours, unless that's turned
+   * off). You asked, so Later doesn't hide an update it finds.
+   */
+  async checkForAppUpdate(): Promise<UpdateCheckResult> {
+    const result = await this.updates.checkNow();
+    if (result.status === "available" && this.store && this.onboardingState().updateSnooze) {
+      this.setOnboardingState({ updateSnooze: null });
+    }
+    return result;
   }
 
-  /** Update now (D80): the download starts, and its progress comes as `update_status`. */
-  installUpdate(): void {
-    this.updates.install();
+  /**
+   * Update now (D80): the download starts, and its progress comes as `update_status`. `whenIdle`: Update when
+   * they're done, the installer starts once no task is in progress.
+   */
+  installUpdate(options: { whenIdle?: boolean } = {}): void {
+    this.updates.install(options);
+  }
+
+  /** Cancel on an update that waits for the tasks (D80). */
+  cancelUpdate(): void {
+    this.updates.cancel();
   }
 
   /** Later (D80): the update bar stays hidden for the available version for a day. */
@@ -3842,7 +3863,8 @@ export class AriaEngine {
     lastSeenVersion?: string;
     dismissedWhatsNewVersion?: string;
     dismissedAvailableUpdateVersion?: string;
-    updateSnooze?: { version: string; until: number };
+    /** null: Later is over (Check now found the update). */
+    updateSnooze?: { version: string; until: number } | null;
   }): OnboardingState {
     const current = this.onboardingState();
     const now = (this.options.attentionClock ?? realClock).now();
@@ -3857,9 +3879,10 @@ export class AriaEngine {
       ...(patch.dismissedAvailableUpdateVersion !== undefined
         ? { dismissedAvailableUpdateVersion: patch.dismissedAvailableUpdateVersion }
         : {}),
-      ...(patch.updateSnooze !== undefined ? { updateSnooze: { ...patch.updateSnooze } } : {}),
+      ...(patch.updateSnooze ? { updateSnooze: { ...patch.updateSnooze } } : {}),
       updatedAt: now,
     };
+    if (patch.updateSnooze === null) delete next.updateSnooze;
     this.db.setSetting("onboarding.state", next);
     this.emit({ type: "onboarding", onboarding: next });
     return next;

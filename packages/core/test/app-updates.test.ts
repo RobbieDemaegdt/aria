@@ -210,7 +210,9 @@ describe("the installer's download (D80)", () => {
 });
 
 describe("AppUpdates: the check, Update now and the clean-up (D80)", () => {
-  function make(options: { fetch?: FetchLike; launch?: (file: string) => void; dir?: string; appVersion?: string } = {}) {
+  function make(
+    options: { fetch?: FetchLike; launch?: (file: string) => void; dir?: string; appVersion?: string; autoCheck?: () => boolean; busy?: () => number } = {},
+  ) {
     const clock = new ManualClock(1_000_000);
     const events: EngineEvent[] = [];
     const failures: string[] = [];
@@ -224,6 +226,8 @@ describe("AppUpdates: the check, Update now and the clean-up (D80)", () => {
       checkFetch: fetch,
       installer: { fetch, dir, launch: options.launch ?? ((file) => launched.push(file)) },
       jitter: 0,
+      ...(options.autoCheck ? { autoCheck: options.autoCheck } : {}),
+      ...(options.busy ? { busyTasks: options.busy } : {}),
       emit: (event) => events.push(event),
       logFailure: (step) => (error) => failures.push(`${step}: ${error instanceof Error ? error.message : String(error)}`),
     });
@@ -272,13 +276,13 @@ describe("AppUpdates: the check, Update now and the clean-up (D80)", () => {
   it("forgets the update when GitHub's latest release no longer is newer, but not when a check fails", async () => {
     let answer: () => Response = () => Response.json(release());
     const { updates, events } = make({ fetch: async () => answer() });
-    await updates.check();
+    await updates.checkNow();
     expect(updates.availableUpdate()?.version).toBe("0.2.0");
     answer = () => new Response("rate limited", { status: 403 });
-    await updates.check();
+    await updates.checkNow();
     expect(updates.availableUpdate()?.version).toBe("0.2.0");
     answer = () => Response.json(release({ tag_name: "v0.1.0" }));
-    await updates.check();
+    await updates.checkNow();
     expect(updates.availableUpdate()).toBeUndefined();
     expect(events.filter((e) => e.type === "available_update").map((e) => (e as { availableUpdate: AvailableUpdateInfo | null }).availableUpdate?.version ?? null)).toEqual([
       "0.2.0",
@@ -286,9 +290,140 @@ describe("AppUpdates: the check, Update now and the clean-up (D80)", () => {
     ]);
   });
 
+  it("Check now says what GitHub says: an update, the latest version, or why it couldn't read it", async () => {
+    let answer: () => Promise<Response> = async () => Response.json(release());
+    const { updates, failures } = make({ fetch: () => answer() });
+    expect(await updates.checkNow()).toMatchObject({ status: "available", update: { version: "0.2.0" } });
+    answer = async () => new Response("rate limited", { status: 403 });
+    expect(await updates.checkNow()).toEqual({ status: "failed", reason: "GitHub answered 403. Try again later." });
+    answer = async () => {
+      throw new Error("net::ERR_INTERNET_DISCONNECTED");
+    };
+    expect(await updates.checkNow()).toEqual({ status: "failed", reason: "ARIA couldn't reach GitHub. Check your connection and try again." });
+    expect(failures).toEqual(["Checking for ARIA updates: net::ERR_INTERNET_DISCONNECTED"]);
+    answer = async () => Response.json(release({ tag_name: "v0.1.0" }));
+    expect(await updates.checkNow()).toEqual({ status: "latest" });
+
+    const noFetch = new AppUpdates({ appVersion: "0.1.0", clock: new ManualClock(), emit: () => undefined, logFailure: () => () => undefined });
+    expect(await noFetch.checkNow()).toEqual({ status: "failed", reason: "This build of ARIA doesn't check for updates." });
+  });
+
+  it("with the automatic check off, checks only on Check now; turned back on, it checks once one is due", async () => {
+    let auto = false;
+    const { updates, clock, gh } = make({ autoCheck: () => auto });
+    updates.start();
+    await flush();
+    expect(checks(gh.asked)).toBe(0);
+    clock.advance(UPDATE_CHECK_INTERVAL_MS * 2);
+    updates.wake();
+    await flush();
+    expect(checks(gh.asked)).toBe(0);
+
+    // Check now, and no timer after it.
+    await updates.checkNow();
+    expect(checks(gh.asked)).toBe(1);
+    clock.advance(UPDATE_CHECK_INTERVAL_MS * 2);
+    await flush();
+    expect(checks(gh.asked)).toBe(1);
+
+    // On again: the last check was 12 hours ago, so one runs now, then every 6 hours.
+    auto = true;
+    updates.autoCheckChanged();
+    await flush();
+    await flush();
+    expect(checks(gh.asked)).toBe(2);
+    clock.advance(UPDATE_CHECK_INTERVAL_MS);
+    await flush();
+    await flush();
+    expect(checks(gh.asked)).toBe(3);
+
+    // Off: the timer goes.
+    auto = false;
+    updates.autoCheckChanged();
+    clock.advance(UPDATE_CHECK_INTERVAL_MS * 2);
+    await flush();
+    expect(checks(gh.asked)).toBe(3);
+    updates.stop();
+  });
+
+  it("turned on before a check is due, waits for the rest of the 6 hours", async () => {
+    let auto = false;
+    const { updates, clock, gh } = make({ autoCheck: () => auto });
+    updates.start();
+    await updates.checkNow();
+    clock.advance(UPDATE_CHECK_INTERVAL_MS / 2);
+    auto = true;
+    updates.autoCheckChanged();
+    await flush();
+    expect(checks(gh.asked)).toBe(1);
+    clock.advance(UPDATE_CHECK_INTERVAL_MS / 2 - 1);
+    await flush();
+    expect(checks(gh.asked)).toBe(1);
+    clock.advance(1);
+    await flush();
+    await flush();
+    expect(checks(gh.asked)).toBe(2);
+    updates.stop();
+  });
+
+  it("Update when they're done downloads now, waits while tasks are busy, and installs once none is", async () => {
+    let busy = 2;
+    const { updates, events, launched, dir } = make({ busy: () => busy });
+    await updates.checkNow();
+    updates.install({ whenIdle: true });
+    await until(() => updates.updateStatus().phase === "waiting");
+    expect(updates.updateStatus()).toEqual({ phase: "waiting", version: "0.2.0" });
+    expect(readdirSync(dir)).toEqual(["ARIA-Setup-0.2.0.exe"]);
+    expect(launched).toEqual([]);
+
+    // A task finishes, one is left: still waiting. Another click of the same choice changes nothing.
+    busy = 1;
+    updates.tasksChanged();
+    updates.install({ whenIdle: true });
+    await flush();
+    expect(launched).toEqual([]);
+
+    busy = 0;
+    updates.tasksChanged();
+    expect(launched).toEqual([]);
+    await flush();
+    expect(launched).toEqual([path.join(dir, "ARIA-Setup-0.2.0.exe")]);
+    expect(statuses(events).at(-1)).toEqual({ phase: "installing", version: "0.2.0" });
+  });
+
+  it("Update when they're done installs at once when no task is busy by the end of the download", async () => {
+    const { updates, launched } = make({ busy: () => 0 });
+    await updates.checkNow();
+    updates.install({ whenIdle: true });
+    await until(() => launched.length === 1);
+    expect(updates.updateStatus().phase).toBe("installing");
+  });
+
+  it("while it waits for the tasks, Restart now installs at once, and Cancel deletes the installer", async () => {
+    const restart = make({ busy: () => 1 });
+    await restart.updates.checkNow();
+    restart.updates.install({ whenIdle: true });
+    await until(() => restart.updates.updateStatus().phase === "waiting");
+    restart.updates.install();
+    expect(restart.launched).toEqual([path.join(restart.dir, "ARIA-Setup-0.2.0.exe")]);
+    expect(restart.updates.updateStatus().phase).toBe("installing");
+
+    const cancel = make({ busy: () => 1 });
+    await cancel.updates.checkNow();
+    cancel.updates.install({ whenIdle: true });
+    await until(() => cancel.updates.updateStatus().phase === "waiting");
+    cancel.updates.cancel();
+    expect(cancel.updates.updateStatus()).toEqual({ phase: "idle" });
+    await until(() => readdirSync(cancel.dir).length === 0);
+    // Nothing waits any more: the tasks ending starts nothing.
+    cancel.updates.tasksChanged();
+    await flush();
+    expect(cancel.launched).toEqual([]);
+  });
+
   it("Update now downloads, reports its progress, and hands the checked installer to the shell", async () => {
     const { updates, events, launched, dir } = make();
-    await updates.check();
+    await updates.checkNow();
     updates.install();
     await until(() => launched.length === 1);
     expect(launched).toEqual([path.join(dir, "ARIA-Setup-0.2.0.exe")]);
@@ -308,7 +443,7 @@ describe("AppUpdates: the check, Update now and the clean-up (D80)", () => {
     const bad = github({ bytes: tampered });
     let fetch = bad.fetch;
     const { updates, events, launched, dir, failures } = make({ fetch: (input, init) => fetch(input, init) });
-    await updates.check();
+    await updates.checkNow();
     updates.install();
     await until(() => updates.updateStatus().phase === "failed");
     expect(updates.updateStatus()).toEqual({
@@ -332,13 +467,13 @@ describe("AppUpdates: the check, Update now and the clean-up (D80)", () => {
       throw new Error("net::ERR_INTERNET_DISCONNECTED");
     };
     const first = make({ fetch: offline });
-    await first.updates.check();
+    await first.updates.checkNow();
     first.updates.install();
     await until(() => first.updates.updateStatus().phase === "failed");
     expect(first.updates.updateStatus()).toMatchObject({ reason: "The download failed. Check your connection and try again." });
 
     const noDigest = make({ fetch: async () => Response.json(release({}, { digest: undefined })) });
-    await noDigest.updates.check();
+    await noDigest.updates.checkNow();
     noDigest.updates.install();
     expect(noDigest.updates.updateStatus()).toEqual({ phase: "failed", version: "0.2.0", reason: "The release has no checksum for its installer." });
   });
@@ -400,5 +535,46 @@ describe("AriaEngine: Later and the update in the state (D80)", () => {
     const snoozed = engine.snoozeUpdate();
     expect(snoozed.updateSnooze).toEqual({ version: "0.2.0", until: 5_000_000 + UPDATE_SNOOZE_MS });
     expect(engine.getState().onboarding?.updateSnooze).toEqual(snoozed.updateSnooze);
+
+    // Check now: you asked, so Later is over for the update it finds.
+    expect(await engine.checkForAppUpdate()).toMatchObject({ status: "available", update: { version: "0.2.0" } });
+    expect(engine.getState().onboarding?.updateSnooze).toBeUndefined();
+  });
+
+  it("with Check for updates automatically off, doesn't check at start; Check now still does", async () => {
+    const base = tempDir();
+    const projects = path.join(base, "GitHub");
+    commitFile(makeRepo(projects, "Moonrise"), "README.md", "# Moonrise\n", "Initial commit");
+    const gh = github();
+    const make = () => {
+      const engine = new AriaEngine({
+        dataDir: path.join(base, "data"),
+        runtime: new FakeRuntime(),
+        projectRoots: [projects],
+        resumeSettleMs: 10,
+        worktreeRoot: path.join(base, "wt"),
+        appVersion: "0.1.0",
+        attentionClock: new ManualClock(5_000_000),
+        watchJitter: 0,
+        updateCheckFetch: gh.fetch,
+      });
+      engines.push(engine);
+      return engine;
+    };
+    const first = make();
+    await first.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const atStart = gh.asked.filter((url) => url === ARIA_LATEST_RELEASE_URL).length;
+    expect(atStart).toBe(1);
+    expect(first.setAttention({ autoUpdateCheck: false }).autoUpdateCheck).toBe(false);
+    await first.stop();
+
+    const second = make();
+    await second.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(gh.asked.filter((url) => url === ARIA_LATEST_RELEASE_URL).length).toBe(atStart);
+    expect(second.getState().availableUpdate).toBeUndefined();
+    expect(await second.checkForAppUpdate()).toMatchObject({ status: "available" });
+    expect(second.getState().availableUpdate?.version).toBe("0.2.0");
   });
 });

@@ -1,5 +1,5 @@
 import type { AvailableUpdateInfo, UpdateStatus } from "@aria/protocol";
-import { Download, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Download, Hourglass, LoaderCircle, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { openPage } from "../openPage";
 import { canUpdateNow, tasksStoppedByRestart, updateBarShown, useAria } from "../store";
@@ -8,8 +8,9 @@ import { Button } from "./CardParts";
 /**
  * The update bar (D80), across the top of the window: an update is available, with Update now and Later. Update now
  * downloads and installs it in the app (an installed build), or opens the download in the browser when ARIA can't.
- * While the download runs, and when it fails, the bar says so. Later hides it for a day; the sidebar footer's dot
- * stays.
+ * While tasks are in progress it asks first, and Update when they're done downloads now and waits for them. While the
+ * download runs, while it waits, and when it fails, the bar says so. Later hides it for a day; the sidebar footer's
+ * dot and the tray's Update to v… stay.
  */
 export function UpdateBar() {
   const update = useAria((s) => s.availableUpdate);
@@ -31,14 +32,17 @@ export function UpdateBar() {
     return () => clearTimeout(timer);
   }, [until]);
 
-  if (!update || !updateBarShown({ availableUpdate: update, appVersion, onboarding, updateStatus: status }, now)) return null;
+  if (!update || !updateBarShown({ availableUpdate: update, appVersion, onboarding, updateStatus: status, updateConfirming: confirming }, now)) {
+    return null;
+  }
   const ours: UpdateStatus = status.phase !== "idle" && status.version === update.version ? status : { phase: "idle" };
   const installable = canUpdateNow({ availableUpdate: update, canInstallUpdates });
+  const underway = ours.phase === "downloading" || ours.phase === "waiting" || ours.phase === "installing";
 
   return (
     <div
       data-testid="update-bar"
-      data-phase={confirming && ours.phase !== "downloading" && ours.phase !== "installing" ? "confirming" : ours.phase}
+      data-phase={confirming && !underway ? "confirming" : ours.phase}
       role="status"
       className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-warn/40 bg-warn/10 px-3 py-1.5 text-xs"
     >
@@ -65,6 +69,7 @@ function BarBody({
   const requestUpdate = useAria((s) => s.requestUpdate);
   const confirmUpdate = useAria((s) => s.confirmUpdate);
   const cancelUpdateConfirm = useAria((s) => s.cancelUpdateConfirm);
+  const cancelUpdate = useAria((s) => s.cancelUpdate);
   const snoozeUpdate = useAria((s) => s.snoozeUpdate);
   const openWhatsNewModal = useAria((s) => s.openWhatsNewModal);
   const download = () => openPage(update.installerUrl ?? update.releaseUrl);
@@ -93,6 +98,25 @@ function BarBody({
     );
   }
 
+  if (status.phase === "waiting") {
+    return (
+      <>
+        <Hourglass className="h-3.5 w-3.5 shrink-0 text-warn" />
+        <span className="min-w-0 flex-1 text-fg" data-testid="update-bar-waiting">
+          ARIA v{status.version} is ready. It installs, and ARIA restarts, once no task is in progress.
+        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button testId="update-bar-cancel-wait" onClick={() => void cancelUpdate()}>
+            Cancel
+          </Button>
+          <Button testId="update-bar-restart-now" primary onClick={() => void confirmUpdate()} title="Tasks in progress stop, and you can resume them after the restart">
+            Restart now
+          </Button>
+        </div>
+      </>
+    );
+  }
+
   if (confirming) {
     const what =
       stopping === 0
@@ -110,6 +134,11 @@ function BarBody({
           <Button testId="update-bar-cancel" onClick={cancelUpdateConfirm}>
             Cancel
           </Button>
+          {stopping > 0 && (
+            <Button testId="update-bar-when-done" onClick={() => void confirmUpdate({ whenIdle: true })}>
+              Update when {stopping === 1 ? "it's" : "they're"} done
+            </Button>
+          )}
           <Button testId="update-bar-confirm" primary onClick={() => void confirmUpdate()}>
             Update and restart
           </Button>

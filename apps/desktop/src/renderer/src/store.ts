@@ -67,6 +67,7 @@ import type {
   TranscriptEntry,
   TranscriptPage,
   UiState,
+  UpdateCheckResult,
   UpdateRegisteredEntryInput,
   UpdateStatus,
   UpdateTimesheetEntryInput,
@@ -274,7 +275,7 @@ interface AriaStore {
   updateStatus: UpdateStatus;
   /** Whether this build can install an update itself (an installed build). */
   canInstallUpdates: boolean;
-  /** The update bar asks whether to restart while tasks are in progress. */
+  /** The update bar asks whether to restart (tasks are in progress, or the tray's Update to v… asked for it). */
   updateConfirming: boolean;
   /** Latest Copilot CLI & system doctor report. */
   doctor: DoctorReport | null;
@@ -562,11 +563,20 @@ interface AriaStore {
   closeWhatsNewModal(): void;
   /** Update now (D80): asks first when tasks are in progress (updating restarts ARIA), else starts the download. */
   requestUpdate(): void;
-  /** Update now, after the question (or without one): the engine downloads, checks and installs. */
-  confirmUpdate(): Promise<void>;
+  /** The tray's Update to v…: the update bar asks, whatever Later said. */
+  promptUpdate(): void;
+  /**
+   * Update now, after the question (or without one): the engine downloads, checks and installs. `whenIdle`: Update
+   * when they're done. While an update waits for the tasks, a call without it restarts at once.
+   */
+  confirmUpdate(options?: { whenIdle?: boolean }): Promise<void>;
   cancelUpdateConfirm(): void;
+  /** Cancel on an update that waits for the tasks. */
+  cancelUpdate(): Promise<void>;
   /** Later (D80): the update bar goes for a day. */
   snoozeUpdate(): Promise<void>;
+  /** Check now (D80): what GitHub says, or null when the call itself failed (actionError says why). */
+  checkForUpdates(): Promise<UpdateCheckResult | null>;
   startTour(step?: number): void;
   nextTourStep(totalSteps?: number): void;
   prevTourStep(): void;
@@ -667,15 +677,17 @@ export function hasStartupUpdateToNotify(state: {
 }
 
 /**
- * The update bar (D80): an update is available and you haven't picked Later for it, or Update now is on its way or
- * failed. `now`: ms since the epoch.
+ * The update bar (D80): an update is available and you haven't picked Later for it, or it asks whether to restart
+ * (Update now from the modal or the tray), or Update now is on its way, waits for the tasks, or failed. `now`: ms
+ * since the epoch.
  */
 export function updateBarShown(
-  state: Pick<AriaStore, "availableUpdate" | "appVersion" | "onboarding" | "updateStatus">,
+  state: Pick<AriaStore, "availableUpdate" | "appVersion" | "onboarding" | "updateStatus"> & Partial<Pick<AriaStore, "updateConfirming">>,
   now: number,
 ): boolean {
   const update = state.availableUpdate;
   if (!update || compareVersion(update.version, state.appVersion) <= 0) return false;
+  if (state.updateConfirming) return true;
   if (state.updateStatus.phase !== "idle" && state.updateStatus.version === update.version) return true;
   const snooze = state.onboarding.updateSnooze;
   return !(snooze && snooze.version === update.version && now < snooze.until);
@@ -1031,6 +1043,9 @@ export const useAria = create<AriaStore>((set, get) => {
           break;
         case "quick_prompt":
           get().openQuickPrompt();
+          break;
+        case "update_prompt":
+          get().promptUpdate();
           break;
         case "speak":
           void speakAnnouncement(event, get().attention);
@@ -2077,13 +2092,25 @@ export const useAria = create<AriaStore>((set, get) => {
       else void get().confirmUpdate();
     },
 
-    async confirmUpdate() {
+    promptUpdate() {
+      set({ whatsNewModalOpen: false, updateConfirming: true });
+    },
+
+    async confirmUpdate(options) {
       set({ updateConfirming: false });
-      await ok(() => window.aria.installUpdate());
+      await ok(() => window.aria.installUpdate(options?.whenIdle ? { whenIdle: true } : {}));
     },
 
     cancelUpdateConfirm() {
       set({ updateConfirming: false });
+    },
+
+    async cancelUpdate() {
+      await ok(() => window.aria.cancelUpdate());
+    },
+
+    async checkForUpdates() {
+      return attempt(() => window.aria.checkForUpdates(), null);
     },
 
     async snoozeUpdate() {

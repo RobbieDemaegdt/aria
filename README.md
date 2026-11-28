@@ -60,7 +60,9 @@ SmartScreen shows "unknown publisher": choose More info, then Run anyway. It ins
 
 After that, ARIA looks for a new release at start and every 6 hours. When there is one, a bar at the top of the window offers
 **Update now**, which downloads the installer, checks it against the checksum GitHub publishes for it and restarts ARIA into
-the new version, or **Later**, which hides the bar for a day.
+the new version, or **Later**, which hides the bar for a day. While tasks are running, **Update when they're done** downloads
+it now and restarts once they finish. The tray menu offers the update too. Customize > Notifications > Updates has **Check
+now** and a switch to turn the automatic check off.
 
 ## Build and run from source
 

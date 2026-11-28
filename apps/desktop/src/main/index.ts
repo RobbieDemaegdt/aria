@@ -6,8 +6,8 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, powerMonitor, safeStorage, session, shell, Tray, type IpcMainInvokeEvent } from "electron";
-import { CopilotRuntime, encodeMonoWav, ghToken, AriaEngine, ManualClock, MAX_CONFIG_BYTES, type FetchLike, type McpSecretStore, type McpServerSecrets, type PhonePushSecrets, type PhoneSecretStore, type TelegramSecretStore, type UpdateInstaller, type VoiceSecretStore } from "@aria/core";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, powerMonitor, safeStorage, session, shell, Tray, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from "electron";
+import { CopilotRuntime, encodeMonoWav, ghToken, AriaEngine, isInstallable, ManualClock, MAX_CONFIG_BYTES, type FetchLike, type McpSecretStore, type McpServerSecrets, type PhonePushSecrets, type PhoneSecretStore, type TelegramSecretStore, type UpdateInstaller, type VoiceSecretStore } from "@aria/core";
 import {
   AcceptOfferInput,
   AddMarketplaceInput,
@@ -109,8 +109,10 @@ import {
   SetPhonePushSecretsInput,
   SetTelegramBotTokenInput,
   SetOnboardingStateInput,
+  InstallUpdateInput,
   OpenCliTerminalInput,
   type AttentionSettings,
+  type AvailableUpdateInfo,
   type EngineEvent,
   type Task,
   type TrackerImportResult,
@@ -196,6 +198,9 @@ interface E2EHooks {
   runtime?: unknown;
   /** The installer Update now would have started (ARIA_FAKE_UPDATE): never started under the hooks. */
   updateInstaller?: string;
+  /** The tray menu's items as they are now, and a click on one (by its id). */
+  trayItems(): Array<{ id?: string; label?: string; enabled: boolean }>;
+  clickTrayItem(id: string): void;
   clickToast(id: string): void;
   openQuickPrompt(): void;
 }
@@ -391,6 +396,10 @@ function updateOptions(): { updateCheckFetch?: FetchLike; updateInstaller?: Upda
   };
 }
 
+const updateOpts = updateOptions();
+/** Update now installs in the app (an installed build, or the made-up release): the tray offers it too. */
+const canInstallUpdates = updateOpts.updateInstaller !== undefined;
+
 const activeRuntime = fakeScenario ? fakeRuntime(fakeScenario) : new CopilotRuntime();
 if (hooks) hooks.runtime = activeRuntime;
 
@@ -400,7 +409,7 @@ engine = new AriaEngine({
   appVersion: (devBuild && process.env.ARIA_APP_VERSION) || app.getVersion(),
   ...(hooks ? { attentionClock: hooks.clock } : {}),
   ...(github ? { github } : {}),
-  ...updateOptions(),
+  ...updateOpts,
   // The scripted runtime's spec moves the clock itself: no jitter, so intervals are exact.
   ...(fakeScenario ? { watchJitter: 0 } : {}),
   // ARIA_FAKE_TRACKER=<config id>: with the scripted runtime only, stands in for a missing tracker setting.
@@ -483,12 +492,17 @@ function send(event: EngineEvent): void {
 
 /** Global hotkey (`Ctrl+Alt+Space`, Phase 6C, PLAN.md §4.1, §5.5): brings the window up and opens the Quick prompt bar. In-window shortcut remains `Ctrl+Space`. */
 function openQuickPrompt(): void {
+  showWindowWith({ type: "quick_prompt" });
+}
+
+/** Brings the window up and sends it an event once its page has loaded. */
+function showWindowWith(event: EngineEvent): void {
   showWindow();
   if (!win || win.isDestroyed()) return;
   if (win.webContents.isLoading()) {
-    win.webContents.once("did-finish-load", () => send({ type: "quick_prompt" }));
+    win.webContents.once("did-finish-load", () => send(event));
   } else {
-    send({ type: "quick_prompt" });
+    send(event);
   }
 }
 
@@ -589,6 +603,12 @@ let shownCount = -1;
 
 let shownFocusMode: boolean | undefined;
 let shownStartAtLogin: boolean | undefined;
+let shownUpdateItem: string | undefined;
+/** The update the engine found, and where Update now stands (D80): the tray's update item. */
+let availableUpdate: AvailableUpdateInfo | null = null;
+let updateStatus: Extract<EngineEvent, { type: "update_status" }>["updateStatus"] = { phase: "idle" };
+/** The tray menu as it was last built (the test hooks read it). */
+let trayTemplate: MenuItemConstructorOptions[] = [];
 
 function updateAttention(): void {
   const count = [...tasks.values()].filter(needsYou).length;
@@ -596,21 +616,43 @@ function updateAttention(): void {
   const focusMode = att.focusMode;
   const startAtLogin = att.startAtLogin === true;
   syncDesktopShellSettings(att);
-  if (count === shownCount && focusMode === shownFocusMode && startAtLogin === shownStartAtLogin && win) return;
+  const updateItem = trayUpdateItem();
+  const updateKey = updateItem ? `${updateItem.label ?? ""}|${updateItem.enabled !== false}` : "";
+  if (count === shownCount && focusMode === shownFocusMode && startAtLogin === shownStartAtLogin && updateKey === shownUpdateItem && win) return;
   shownCount = count;
   const label = `${count === 0 ? "ARIA" : `ARIA · ${count} need${count === 1 ? "s" : ""} you`}${focusMode ? " · focus mode" : ""}`;
   tray?.setImage(images.trayIcon(count > 0));
   tray?.setToolTip(label);
-  if (tray && (focusMode !== shownFocusMode || startAtLogin !== shownStartAtLogin)) {
-    tray.setContextMenu(trayMenu(focusMode, startAtLogin));
+  if (tray && (focusMode !== shownFocusMode || startAtLogin !== shownStartAtLogin || updateKey !== shownUpdateItem)) {
+    tray.setContextMenu(trayMenu(focusMode, startAtLogin, updateItem));
   }
   shownFocusMode = focusMode;
   shownStartAtLogin = startAtLogin;
+  shownUpdateItem = updateKey;
   if (win && !win.isDestroyed()) win.setOverlayIcon(count > 0 ? images.overlayDot() : null, count > 0 ? label : "");
 }
 
-function trayMenu(focusMode: boolean, startAtLogin: boolean): Menu {
-  return Menu.buildFromTemplate([
+/**
+ * The tray's update item (D80), while an update is available: Update to v… brings the window up with the update
+ * bar's question (Later on the bar doesn't hide it). A build that can't install itself offers the download instead.
+ */
+function trayUpdateItem(): MenuItemConstructorOptions | undefined {
+  const update = availableUpdate;
+  if (!update) return undefined;
+  const v = update.version;
+  const status = updateStatus.phase !== "idle" && updateStatus.version === v ? updateStatus.phase : "idle";
+  if (status === "downloading") return { id: "update", label: `Downloading ARIA v${v}…`, enabled: false };
+  if (status === "installing") return { id: "update", label: `Restarting to install ARIA v${v}…`, enabled: false };
+  if (status === "waiting") return { id: "update", label: `ARIA v${v} installs when the tasks are done`, click: showWindow };
+  if (!canInstallUpdates || !isInstallable(update, engine.appVersion())) {
+    return { id: "update", label: `Download ARIA v${v}…`, click: () => openExternal(update.installerUrl ?? update.releaseUrl) };
+  }
+  return { id: "update", label: `Update to ARIA v${v}…`, click: () => showWindowWith({ type: "update_prompt" }) };
+}
+
+function trayMenu(focusMode: boolean, startAtLogin: boolean, updateItem: MenuItemConstructorOptions | undefined): Menu {
+  trayTemplate = [
+    ...(updateItem ? [updateItem, { type: "separator" as const }] : []),
     { label: "Open ARIA", click: showWindow },
     { label: "Quick prompt (Ctrl+Alt+Space)", click: openQuickPrompt },
     {
@@ -648,7 +690,8 @@ function trayMenu(focusMode: boolean, startAtLogin: boolean): Menu {
         app.quit();
       },
     },
-  ]);
+  ];
+  return Menu.buildFromTemplate(trayTemplate);
 }
 
 function createTray(): void {
@@ -698,6 +741,12 @@ function onEngineEvent(event: EngineEvent): void {
     if (hooks) hooks.spoken.push(event);
   } else if (event.type === "attention") {
     updateAttention();
+  } else if (event.type === "available_update") {
+    availableUpdate = event.availableUpdate;
+    updateAttention();
+  } else if (event.type === "update_status") {
+    updateStatus = event.updateStatus;
+    updateAttention();
   }
 }
 
@@ -724,6 +773,12 @@ if (hooks) {
     if (event) onToastClick(event);
   };
   hooks.openQuickPrompt = () => openQuickPrompt();
+  hooks.trayItems = () =>
+    trayTemplate.filter((item) => item.type !== "separator").map((item) => ({ id: item.id, label: item.label, enabled: item.enabled !== false }));
+  hooks.clickTrayItem = (id) => {
+    const click = trayTemplate.find((item) => item.id === id && item.enabled !== false)?.click as (() => void) | undefined;
+    click?.();
+  };
 }
 
 // ── IPC ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1066,8 +1121,10 @@ function registerIpc(): void {
 
   handle(CHANNELS.runDoctor, () => engine.runDoctor());
   handle(CHANNELS.setOnboardingState, (_e, arg) => engine.setOnboardingState(SetOnboardingStateInput.parse(arg ?? {})));
-  handle(CHANNELS.installUpdate, () => engine.installUpdate());
+  handle(CHANNELS.installUpdate, (_e, arg) => engine.installUpdate(InstallUpdateInput.parse(arg ?? {})));
+  handle(CHANNELS.cancelUpdate, () => engine.cancelUpdate());
   handle(CHANNELS.snoozeUpdate, () => engine.snoozeUpdate());
+  handle(CHANNELS.checkForUpdates, () => engine.checkForAppUpdate());
   handle(CHANNELS.openCliTerminal, (_e, arg) => {
     const { target } = OpenCliTerminalInput.parse(arg);
     if (hooks) {

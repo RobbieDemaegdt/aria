@@ -296,6 +296,27 @@ describe("Onboarding, Copilot CLI Doctor, GUI Tour & What's New UI", () => {
       expect(renderToStaticMarkup(<UpdateBar />)).toContain("Restarting ARIA to install v0.2.0…");
     });
 
+    it("offers Update when they're done only while tasks are in progress, then says it waits for them", () => {
+      useAria.setState({ updateConfirming: true, tasks: [] });
+      let html = renderToStaticMarkup(<UpdateBar />);
+      expect(html).toContain("Updating restarts ARIA.");
+      expect(html).not.toContain('data-testid="update-bar-when-done"');
+
+      useAria.setState({ tasks: [{ id: "t1", state: "running" } as never] });
+      html = renderToStaticMarkup(<UpdateBar />);
+      expect(html).toContain('data-testid="update-bar-when-done"');
+      expect(html).toContain("Update when it&#x27;s done");
+      useAria.setState({ tasks: [{ id: "t1", state: "running" } as never, { id: "t2", state: "starting" } as never] });
+      expect(renderToStaticMarkup(<UpdateBar />)).toContain("Update when they&#x27;re done");
+
+      useAria.setState({ updateConfirming: false, updateStatus: { phase: "waiting", version: "0.2.0" } });
+      html = renderToStaticMarkup(<UpdateBar />);
+      expect(html).toContain('data-phase="waiting"');
+      expect(html).toContain("ARIA v0.2.0 is ready. It installs, and ARIA restarts, once no task is in progress.");
+      expect(html).toContain('data-testid="update-bar-cancel-wait"');
+      expect(html).toContain('data-testid="update-bar-restart-now"');
+    });
+
     it("says why it failed, with Download instead, Later and Try again", () => {
       useAria.setState({ updateStatus: { phase: "failed", version: "0.2.0", reason: "The download stopped before the end." } });
       const html = renderToStaticMarkup(<UpdateBar />);

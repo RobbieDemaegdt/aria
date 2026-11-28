@@ -1138,7 +1138,7 @@ export function WhatsNewModal() {
   const availableUpdate = useAria((s) => s.availableUpdate);
   const startTour = useAria((s) => s.startTour);
   const installable = useAria(canUpdateNow);
-  const updating = useAria((s) => s.updateStatus.phase === "downloading" || s.updateStatus.phase === "installing");
+  const updating = useAria((s) => s.updateStatus.phase === "downloading" || s.updateStatus.phase === "waiting" || s.updateStatus.phase === "installing");
   const requestUpdate = useAria((s) => s.requestUpdate);
   const snoozeUpdate = useAria((s) => s.snoozeUpdate);
 

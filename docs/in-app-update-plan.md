@@ -1,7 +1,6 @@
 # Plan: Update now or later
 
-> Status: phases 1 and 2 built · 2026-11-28 · phase 3 (the extras) is open. Decision
-> [D80](../PLAN.md#03-decisions-log).
+> Status: phases 1, 2 and 3 built · 2026-11-28. Decision [D80](../PLAN.md#03-decisions-log).
 
 ## Context
 
@@ -36,8 +35,13 @@ What was missing:
 
   ```
   ⚠ 2 tasks are in progress. Updating restarts ARIA: they stop, and you can resume them after the restart.
-                                                                        [Cancel]  [Update and restart]
+                                            [Cancel]  [Update when they're done]  [Update and restart]
   ```
+
+  **Update when they're done** downloads and checks the installer now, then waits. The bar says `ARIA v0.2.0 is
+  ready. It installs, and ARIA restarts, once no task is in progress.`, with **Cancel** (the installer is deleted)
+  and **Restart now**. ARIA restarts once no task is running, waiting for you inside its turn, or queued to start. A
+  cloud task with its session doesn't count: it goes on without ARIA, as at any restart.
 
   Then the bar says `Restarting ARIA to install v0.2.0…`, the installer runs silently and ARIA starts again on the
   new version. The What's New card for the new version appears in the chat, as it did before
@@ -49,6 +53,13 @@ What was missing:
 - **If something fails** (no network, a checksum mismatch), the bar says so in one line and offers **Download
   instead** (the browser, as before), **Later** and **Try again**.
 - **A development build** can't install itself, so its bar offers **Download** in place of Update now.
+- **The tray menu** has `Update to ARIA v0.2.0…` at the top while an update is available. It brings the window up
+  with the bar's question (`Updating restarts ARIA.`), also after Later, because you asked. While the download runs,
+  waits for the tasks, or restarts, the item says so. A development build's item is `Download ARIA v0.2.0…`.
+- **Customize › Notifications › Updates** has **Check now**, which says what GitHub's latest release is (`ARIA v0.2.0
+  is available: the bar at the top of the window has it.`, `You have the latest version.`, or why it couldn't check),
+  and **Check for ARIA updates automatically** (on by default). An update Check now finds isn't hidden by Later any
+  more.
 
 The bar replaces the modal that opened by itself at start. The modal still opens by itself after ARIA was updated, to
 show what's new.
@@ -126,12 +137,20 @@ modal banner draw from it.
   for requests without a token (60 an hour).
 - It emits `available_update` only when what GitHub says changes. When the latest release is no longer newer, the
   update is forgotten; a failed request changes nothing.
+- **Check now** (`checkForUpdates()`) runs the same check and returns an `UpdateCheckResult` (`available`, `latest`
+  or `failed` with the reason). The next automatic check comes 6 hours after it.
+- **Check for ARIA updates automatically** is `AttentionSettings.autoUpdateCheck` (default `true`). Off: no check at
+  start, on the timer or after a sleep, only Check now. Turned back on, ARIA checks at once if one is due, or when
+  the rest of the 6 hours has passed.
 
 ## Later, stored
 
 `OnboardingState` gets `updateSnooze?: { version: string; until: number }`, set by `snoozeUpdate()` with the engine's
 clock. The bar is hidden while `snooze.version === update.version && now < snooze.until`, and comes back when it ends,
 also while ARIA runs. While Update now is downloading or has failed, the bar stays whatever the snooze says.
+
+Two things end Later early, because you asked: the tray's Update to v…, and Check now when it finds that update
+(`updateSnooze` is removed). The bar also shows while it asks its question, whatever the snooze says.
 
 Closing the modal doesn't count as Later: you open it from the bar to read the notes, and that shouldn't hide the
 bar. `dismissedAvailableUpdateVersion` stays in the schema, so stored settings still load, but nothing writes it any
@@ -152,18 +171,20 @@ more.
 
 | File | Change |
 | --- | --- |
-| `packages/protocol/src/index.ts` | `AvailableUpdateInfo` gets `installerSize` and `installerSha256`; `OnboardingState` gets `updateSnooze`; `UpdateStatus` and the `update_status` event; `AppState` gets `updateStatus` and `canInstallUpdates`; `AriaApi` gets `installUpdate` and `snoozeUpdate` |
-| `packages/protocol/src/channels.ts` | The two new channels |
+| `packages/protocol/src/index.ts` | `AvailableUpdateInfo` gets `installerSize` and `installerSha256`; `OnboardingState` gets `updateSnooze`; `UpdateStatus` (with `waiting`) and the `update_status` event; `UpdateCheckResult`; the `update_prompt` event; `AttentionSettings` gets `autoUpdateCheck`; `AppState` gets `updateStatus` and `canInstallUpdates`; `AriaApi` gets `installUpdate` (`whenIdle`), `cancelUpdate`, `snoozeUpdate` and `checkForUpdates` |
+| `packages/protocol/src/channels.ts` | The four new channels |
 | `packages/core/src/releases/releases.ts` | Only the exact installer name and link; its `size` and `digest` |
 | `packages/core/src/releases/download.ts` (new) | `installProblem`, `downloadInstaller`: the redirects, the size, the checksum |
-| `packages/core/src/releases/updates.ts` (new) | `AppUpdates`: the 6-hour check, the wake, Update now's progress, the clean-up |
-| `packages/core/src/engine.ts` | Uses `AppUpdates`; `installUpdate()`, `snoozeUpdate()`; the state |
-| `apps/desktop/src/main/index.ts` | The installer options (installed build only), the IPC handlers, the installer start in the quit path |
+| `packages/core/src/releases/updates.ts` (new) | `AppUpdates`: the 6-hour check and its switch, Check now, the wake, Update now's progress, Update when they're done, the clean-up |
+| `packages/core/src/tasks/manager.ts` | `busyCount()`: the tasks Update when they're done waits for |
+| `packages/core/src/engine.ts` | Uses `AppUpdates`; `installUpdate()`, `cancelUpdate()`, `snoozeUpdate()`, `checkForAppUpdate()`; the switch; the state |
+| `apps/desktop/src/main/index.ts` | The installer options (installed build only), the IPC handlers, the tray's update item, the installer start in the quit path |
 | `apps/desktop/src/main/fake-update.ts` (new) | `ARIA_FAKE_UPDATE`, a development switch: a made-up release, with no network |
 | `apps/desktop/src/preload/index.ts` | The two new calls |
-| `apps/desktop/src/renderer/src/components/UpdateBar.tsx` (new) | The bar |
+| `apps/desktop/src/renderer/src/components/UpdateBar.tsx` (new) | The bar, with Update when they're done and the wait |
+| `apps/desktop/src/renderer/src/components/CustomizeNotifications.tsx` | Updates: Check now and the automatic check |
 | `apps/desktop/src/renderer/src/components/Onboarding.tsx` | The modal banner's Update now and Later |
-| `apps/desktop/src/renderer/src/store.ts` | `updateStatus`, the question before a restart, Later; no startup popup for an available update |
+| `apps/desktop/src/renderer/src/store.ts` | `updateStatus`, the question before a restart (also from the tray), Later, Check now; no startup popup for an available update |
 | `apps/desktop/src/renderer/src/App.tsx` | The bar above the panels |
 | `README.md`, `PLAN.md` | The Install section; decision D80 |
 
@@ -173,13 +194,18 @@ more.
   name, wrong host, no digest, no size, not newer); the download (the redirect, no credentials, a checksum mismatch,
   a size announced, larger or cut short, a host off the list, http, a user name or port, six redirects, an error
   answer); the 6-hour check, the wake, an event only on a change; Update now's progress, its failure and Try again;
-  the clean-up; Later in the engine's state.
+  the clean-up; Later in the engine's state; Check now's three answers and Later ending for what it finds; the
+  automatic check off (at start, on the timer, after a sleep, after a restart) and back on; Update when they're done
+  waiting for the tasks, installing at once with none, Restart now and Cancel.
 - **Renderer** ([store.test.ts](../apps/desktop/test/store.test.ts),
   [onboarding.test.tsx](../apps/desktop/test/onboarding.test.tsx)): no popup at start for an available update; the
-  bar's visibility with Later; Update now or Download; the question when tasks are in progress; each phase drawn.
+  bar's visibility with Later; Update now or Download; the question when tasks are in progress, with Update when
+  they're done; the tray's question after Later; Check now; each phase drawn, the wait included.
 - **E2E** ([ui-update.spec.ts](../apps/desktop/e2e/ui-update.spec.ts)), with `ARIA_FAKE_UPDATE`: the bar, What's new,
   Later (also after a restart); Update now's question with a running task, then the download and the hand-over (the
-  hooks record the installer instead of starting it); a checksum mismatch.
+  hooks record the installer instead of starting it); Update when it's done waiting for a running task, then the
+  hand-over once it's stopped; the tray's Update to v… after Later; the automatic check off across a restart, and
+  Check now; a checksum mismatch.
 - **Still to do by hand, once**: install a real older version from an installer, publish a test release, and update
   it from the bar. Only that run starts the real installer.
 
@@ -188,8 +214,8 @@ more.
 1. **See it and pick Later.** Built: the 6-hour check, the bar, the snooze, the modal's buttons.
 2. **Update now.** Built: the download and its checks, the progress, the question when tasks are in progress, the
    restart.
-3. **Extras.** Open: a tray item (`Update to v0.2.0…`), a Check for updates button, "Update when they're done" (wait
-   for the tasks, then restart), and a setting to turn the automatic check off.
+3. **Extras.** Built: the tray item (`Update to ARIA v0.2.0…`), Check now, Update when they're done (wait for the
+   tasks, then restart), and the setting to turn the automatic check off.
 
 ## Open questions
 
